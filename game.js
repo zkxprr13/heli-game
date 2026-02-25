@@ -6,7 +6,6 @@ const BASE = "/heli-game";
 // ---------------- TIMER ----------------
 const timerEl = document.getElementById("timer");
 const start = performance.now();
-
 setInterval(() => {
   if (!timerEl) return;
   const sec = Math.floor((performance.now() - start) / 1000);
@@ -17,168 +16,312 @@ setInterval(() => {
 
 // ---------------- SCENE ----------------
 const canvas = document.getElementById("game");
+if (!canvas) throw new Error("No canvas#game");
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
+scene.fog = new THREE.Fog(0x87ceeb, 80, 700);
 
-const camera = new THREE.PerspectiveCamera(
-  65,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  2000
-);
+const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 2500);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 // ---------------- LIGHT ----------------
-scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+scene.add(new THREE.HemisphereLight(0xffffff, 0x3b4b3b, 1.0));
 
-const sun = new THREE.DirectionalLight(0xffffff, 1);
-sun.position.set(50, 100, 50);
+const sun = new THREE.DirectionalLight(0xffffff, 1.15);
+sun.position.set(80, 140, 60);
 sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 800;
+sun.shadow.camera.left = -260;
+sun.shadow.camera.right = 260;
+sun.shadow.camera.top = 260;
+sun.shadow.camera.bottom = -260;
 scene.add(sun);
 
-// ---------------- GROUND (меньше) ----------------
+// ---------------- GROUND ----------------
 const GROUND_Y = -2;
 
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(600, 600),
-  new THREE.MeshStandardMaterial({ color: 0x3fa34d })
-);
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x3fa34d, roughness: 1.0 });
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(700, 700), groundMat);
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = GROUND_Y;
 ground.receiveShadow = true;
 scene.add(ground);
 
-// ---------------- MODEL LOADER ----------------
-const loader = new GLTFLoader();
+// grass (optional)
+new THREE.TextureLoader().load(
+  `${BASE}/assets/textures/grass.jpg`,
+  (tex) => {
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(45, 45);
+    groundMat.map = tex;
+    groundMat.color.set(0xffffff);
+    groundMat.needsUpdate = true;
+  },
+  undefined,
+  () => {}
+);
 
+// ---------------- GLTF ----------------
+const loader = new GLTFLoader();
 function loadModel(url) {
-  return new Promise((resolve, reject) => {
-    loader.load(url, (g) => resolve(g.scene), undefined, reject);
+  return new Promise((resolve, reject) => loader.load(url, (g) => resolve(g.scene), undefined, reject));
+}
+function setupShadows(root) {
+  root.traverse((n) => {
+    if (n.isMesh) {
+      n.castShadow = true;
+      n.receiveShadow = true;
+    }
   });
 }
+function fitModelToSize(model, targetSize) {
+  const box = new THREE.Box3().setFromObject(model);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  model.scale.multiplyScalar(targetSize / maxDim);
+}
+function placeOnGround(model, groundY) {
+  const box = new THREE.Box3().setFromObject(model);
+  model.position.y += groundY - box.min.y;
+}
+function randBetween(a, b) {
+  return a + Math.random() * (b - a);
+}
+
+// ---------------- FIXED OBJECTS (NEW) ----------------
+// Эти деревья всегда будут стоять на одних и тех же местах.
+const FIXED_TREES = [
+  { x: -260, z: -220, rotY: 0.2, scale: 1.05 },
+  { x: -180, z: -40,  rotY: 1.7, scale: 0.95 },
+  { x: -40,  z:  210, rotY: 3.1, scale: 1.15 },
+  { x:  120, z:  90,  rotY: 2.2, scale: 1.00 },
+  { x:  260, z: -160, rotY: 0.9, scale: 1.10 },
+];
 
 // ---------------- PLANE ----------------
 const plane = new THREE.Group();
-plane.position.set(0, 8, 0);
 scene.add(plane);
 
+const PLANE_URL = `${BASE}/assets/models/plane.glb`;
+
 function addFallbackPlane() {
+  plane.clear();
   const body = new THREE.Mesh(
-    new THREE.ConeGeometry(0.6, 3, 8),
-    new THREE.MeshStandardMaterial({ color: 0xffaa00 })
+    new THREE.ConeGeometry(0.8, 4.0, 10),
+    new THREE.MeshStandardMaterial({ color: 0xffaa00, roughness: 0.7 })
   );
   body.rotation.x = Math.PI / 2;
+  body.castShadow = true;
+
+  const wing = new THREE.Mesh(
+    new THREE.BoxGeometry(3.5, 0.15, 1.0),
+    new THREE.MeshStandardMaterial({ color: 0x8ecae6, roughness: 0.8 })
+  );
+  wing.position.set(0, 0, 0.4);
+  wing.castShadow = true;
+
   plane.add(body);
+  plane.add(wing);
 }
 
-loadModel(`${BASE}/assets/models/plane.glb`)
+loadModel(PLANE_URL)
   .then((model) => {
-    model.scale.setScalar(2);
-    model.rotation.y = Math.PI;
+    setupShadows(model);
+    fitModelToSize(model, 7);
+    model.position.set(0, 0, 0);
+    placeOnGround(model, 0);
+
+    // ✅ РАЗВОРОТ самолёта:
+    model.rotation.y = 0;
+
+    plane.clear();
     plane.add(model);
+
+    plane.position.set(0, GROUND_Y, 0);
   })
   .catch(() => {
     addFallbackPlane();
+    plane.position.set(0, GROUND_Y, 0);
   });
 
-// ---------------- МИНИМАЛЬНОЕ ОКРУЖЕНИЕ ----------------
-async function addLightWorld() {
+// ---------------- WORLD: 2 houses + fewer trees ----------------
+async function buildWorld() {
   try {
-    const tree = await loadModel(`${BASE}/assets/models/tree.glb`);
-    tree.scale.setScalar(4);
+    const houseBase = await loadModel(`${BASE}/assets/models/house.glb`);
+    setupShadows(houseBase);
+    fitModelToSize(houseBase, 12);
+    placeOnGround(houseBase, GROUND_Y);
 
-    for (let i = 0; i < 15; i++) {
-      const t = tree.clone(true);
-      t.position.set(
-        (Math.random() - 0.5) * 400,
-        GROUND_Y,
-        (Math.random() - 0.5) * 400
-      );
+    const h1 = houseBase.clone(true);
+    h1.position.set(-220, GROUND_Y, -140);
+    h1.rotation.y = 0.6;
+    scene.add(h1);
+
+    const h2 = houseBase.clone(true);
+    h2.position.set(200, GROUND_Y, 160);
+    h2.rotation.y = -1.2;
+    scene.add(h2);
+  } catch {}
+
+  try {
+    const treeBase = await loadModel(`${BASE}/assets/models/tree.glb`);
+    setupShadows(treeBase);
+    fitModelToSize(treeBase, 10);
+    placeOnGround(treeBase, GROUND_Y);
+
+    // --- FIXED TREES (NEW) ---
+    for (const p of FIXED_TREES) {
+      const t = treeBase.clone(true);
+      t.position.set(p.x, GROUND_Y, p.z);
+      t.rotation.y = p.rotY ?? 0;
+      t.scale.multiplyScalar(p.scale ?? 1);
       scene.add(t);
     }
 
-    const house = await loadModel(`${BASE}/assets/models/house.glb`);
-    house.scale.setScalar(3);
-
-    for (let i = 0; i < 6; i++) {
-      const h = house.clone(true);
-      h.position.set(
-        (Math.random() - 0.5) * 300,
-        GROUND_Y,
-        (Math.random() - 0.5) * 300
-      );
-      scene.add(h);
+    // меньше деревьев: 18 (минус фиксированные)
+    for (let i = 0; i < Math.max(0, 18 - FIXED_TREES.length); i++) {
+      const t = treeBase.clone(true);
+      t.position.set(randBetween(-300, 300), GROUND_Y, randBetween(-300, 300));
+      t.rotation.y = randBetween(0, Math.PI * 2);
+      t.scale.multiplyScalar(randBetween(0.85, 1.25));
+      scene.add(t);
     }
   } catch {}
 }
+buildWorld();
 
-addLightWorld();
-
-// ---------------- CONTROLS ----------------
+// ---------------- ARCADE FLIGHT (W accel, S brake, no Q/E) ----------------
 const keys = new Set();
 window.addEventListener("keydown", (e) => keys.add(e.code));
 window.addEventListener("keyup", (e) => keys.delete(e.code));
 
-let speed = 0;
+let speed = 0;       // forward speed
+let altitude = 0;    // height over ground
+let vAlt = 0;        // vertical speed (altitude velocity)
 
-function updatePlane(dt) {
-  const accel = 20;
-  const maxSpeed = 60;
+const MAX_SPEED = 95;
+const ACCEL = 34;
+const BRAKE = 28;
+const DRAG = 14;
 
-  if (keys.has("KeyW")) speed += accel * dt;
-  if (keys.has("KeyS")) speed -= accel * dt;
+const TAKEOFF_SPEED = 28;   // above -> start gaining lift
+const STALL_SPEED = 18;     // below -> lose lift faster
 
-  speed = THREE.MathUtils.clamp(speed, 0, maxSpeed);
+const LIFT_POWER = 14;      // how fast we gain altitude when fast
+const DESCENT_POWER = 10;   // how fast we lose altitude when slow
+const V_DAMP = 3.5;         // smooth vertical
 
-  if (keys.has("ShiftLeft")) speed *= 1.01;
+const YAW_RATE = 1.6;
+const BANK_MAX = 0.55;
+const BANK_SMOOTH = 5.0;
 
-  if (keys.has("KeyA")) plane.rotation.y += 1.5 * dt;
-  if (keys.has("KeyD")) plane.rotation.y -= 1.5 * dt;
+const tmpV = new THREE.Vector3();
 
-  if (keys.has("KeyQ")) plane.position.y += 15 * dt;
-  if (keys.has("KeyE")) plane.position.y -= 15 * dt;
+function updateFlight(dt) {
+  const w = keys.has("KeyW");
+  const s = keys.has("KeyS");
+  const boost = keys.has("ShiftLeft") || keys.has("ShiftRight");
+  const climb = keys.has("Space");
 
-  const forward = new THREE.Vector3(0, 0, 1)
-    .applyQuaternion(plane.quaternion)
-    .normalize();
+  // --- speed control ---
+  if (w) speed += ACCEL * (boost ? 1.2 : 1.0) * dt;
+  else speed -= DRAG * dt;
 
+  if (s) speed -= BRAKE * dt;
+
+  speed = THREE.MathUtils.clamp(speed, 0, MAX_SPEED);
+
+  // --- steering ---
+  const yawInput =
+    (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) -
+    (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0);
+
+  plane.rotation.y += yawInput * YAW_RATE * dt;
+
+  // nice banking (roll), purely visual
+  const targetBank = THREE.MathUtils.clamp(-yawInput * 0.45, -BANK_MAX, BANK_MAX);
+  plane.rotation.z = THREE.MathUtils.lerp(
+    plane.rotation.z,
+    targetBank,
+    1 - Math.pow(0.001, dt * BANK_SMOOTH)
+  );
+
+  // --- altitude behavior ---
+  let targetV = 0;
+
+  // Space = подъём
+  if (climb) {
+    targetV += 9.0;
+  }
+
+  if (speed < TAKEOFF_SPEED) {
+    const t = (TAKEOFF_SPEED - speed) / TAKEOFF_SPEED;
+    targetV += -THREE.MathUtils.lerp(0.8, DESCENT_POWER, THREE.MathUtils.clamp(t, 0, 1));
+  }
+
+  if (speed < STALL_SPEED) targetV *= 1.15;
+
+  vAlt = THREE.MathUtils.lerp(vAlt, targetV, 1 - Math.pow(0.001, dt * V_DAMP));
+  altitude += vAlt * dt;
+
+  const bankAbs = Math.abs(plane.rotation.z);
+  const extraClearance = bankAbs * 6.0;
+  const minAlt = extraClearance;
+
+  altitude = THREE.MathUtils.clamp(altitude, minAlt, 220);
+
+  const forward = tmpV.set(0, 0, 1).applyQuaternion(plane.quaternion).normalize();
   plane.position.addScaledVector(forward, speed * dt);
 
-  plane.position.y = THREE.MathUtils.clamp(plane.position.y, GROUND_Y + 2, 150);
+  plane.position.y = GROUND_Y + altitude;
 }
 
-// ---------------- CAMERA (жёстко сзади) ----------------
-function updateCamera() {
-  const offset = new THREE.Vector3(0, 6, -18)
-    .applyQuaternion(plane.quaternion);
+// ---------------- CAMERA ----------------
+const desiredPos = new THREE.Vector3();
+const lookAt = new THREE.Vector3();
+const tmp = new THREE.Vector3();
 
-  camera.position.copy(plane.position).add(offset);
-  camera.lookAt(plane.position);
+function updateCamera(dt) {
+  const k = speed / MAX_SPEED;
+  const dist = THREE.MathUtils.lerp(22, 30, k);
+  const height = THREE.MathUtils.lerp(6.5, 9.0, k);
+
+  const backOffset = new THREE.Vector3(0, height, -dist).applyQuaternion(plane.quaternion);
+  desiredPos.copy(plane.position).add(backOffset);
+
+  camera.position.lerp(desiredPos, 1 - Math.pow(0.001, dt));
+  lookAt.copy(plane.position).add(tmp.set(0, 3.0, 10.0).applyQuaternion(plane.quaternion));
+  camera.lookAt(lookAt);
 }
 
 // ---------------- LOOP ----------------
 let last = performance.now();
-
 function animate() {
   const now = performance.now();
   const dt = Math.min((now - last) / 1000, 0.033);
   last = now;
 
-  updatePlane(dt);
-  updateCamera();
+  updateFlight(dt);
+  updateCamera(dt);
 
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
-
 animate();
 
 // ---------------- RESIZE ----------------
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
 });

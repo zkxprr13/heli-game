@@ -9,7 +9,7 @@ function showOverlay(msg) {
     el.style.position = "fixed";
     el.style.left = "12px";
     el.style.bottom = "12px";
-    el.style.maxWidth = "520px";
+    el.style.maxWidth = "560px";
     el.style.padding = "10px 12px";
     el.style.borderRadius = "10px";
     el.style.background = "rgba(0,0,0,0.65)";
@@ -26,19 +26,22 @@ function showOverlay(msg) {
 window.addEventListener("error", (e) => {
   showOverlay("❌ JS ошибка:\n" + (e?.message || e));
 });
-
 window.addEventListener("unhandledrejection", (e) => {
   showOverlay("❌ Promise ошибка:\n" + (e?.reason?.message || e?.reason || e));
 });
 
-window.addEventListener("load", init); // <-- ключевая строка (DOM точно готов)
+window.addEventListener("load", init);
 
 function init() {
   const canvas = document.getElementById("game");
   const timerEl = document.getElementById("timer");
 
   if (!canvas) {
-    showOverlay("❌ Не найден <canvas id='game'>.\nПроверь, что в ОПУБЛИКОВАННОМ index.html есть:\n<canvas id=\"game\"></canvas>");
+    showOverlay(
+      "❌ Не найден <canvas id='game'>.\n" +
+        "Проверь, что в ОПУБЛИКОВАННОМ index.html есть:\n" +
+        "<canvas id=\"game\"></canvas>"
+    );
     return;
   }
 
@@ -54,6 +57,10 @@ function init() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  // Стартовая камера — чтобы точно что-то увидеть
+  camera.position.set(0, 20, -30);
+  camera.lookAt(0, 5, 0);
 
   // ---------- Light ----------
   scene.add(new THREE.HemisphereLight(0xffffff, 0x2b4b2b, 0.9));
@@ -71,13 +78,24 @@ function init() {
   scene.add(sun);
 
   // ---------- Ground (fallback green, then try grass) ----------
+  const GROUND_Y = -5;
+
   const groundGeo = new THREE.PlaneGeometry(1200, 1200);
   const groundMat = new THREE.MeshStandardMaterial({ color: 0x2f8f2f, roughness: 1.0 });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -5;
+  ground.position.y = GROUND_Y;
   ground.receiveShadow = true;
   scene.add(ground);
+
+  // Тестовый куб — если его видно, значит рендер/камера работают (можешь потом удалить)
+  const testCube = new THREE.Mesh(
+    new THREE.BoxGeometry(3, 3, 3),
+    new THREE.MeshStandardMaterial({ color: 0xff00ff })
+  );
+  testCube.position.set(0, GROUND_Y + 2, 0);
+  testCube.castShadow = true;
+  scene.add(testCube);
 
   const texLoader = new THREE.TextureLoader();
   texLoader.load(
@@ -89,6 +107,8 @@ function init() {
       groundMat.map = tex;
       groundMat.color.set(0xffffff);
       groundMat.needsUpdate = true;
+      // убираем сообщение, если было
+      showOverlay("");
     },
     undefined,
     () => {
@@ -110,12 +130,29 @@ function init() {
     });
   }
 
+  // Авто-масштаб модели под “понятный” размер
+  function fitModelToSize(model, targetSize = 3) {
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const scale = targetSize / maxDim;
+    model.scale.multiplyScalar(scale);
+    return scale;
+  }
+
+  // Ставим модель на землю по нижней границе (minY)
+  function placeModelOnGround(model, groundY = GROUND_Y) {
+    const box = new THREE.Box3().setFromObject(model);
+    const minY = box.min.y;
+    model.position.y += groundY - minY;
+  }
+
   // ---------- Plane ----------
   const plane = new THREE.Group();
-  plane.position.set(0, 5, 0);
+  plane.position.set(0, 10, 0); // повыше, чтобы точно было видно
   scene.add(plane);
 
-  // Заглушка (чтобы всегда было что видно)
   function addPlaneFallback() {
     const body = new THREE.Mesh(
       new THREE.ConeGeometry(0.6, 2.2, 8),
@@ -124,18 +161,32 @@ function init() {
     body.rotation.x = Math.PI / 2;
     body.castShadow = true;
     plane.add(body);
+
+    const wing = new THREE.Mesh(
+      new THREE.BoxGeometry(2.2, 0.12, 0.6),
+      new THREE.MeshStandardMaterial({ color: 0x8ecae6, roughness: 0.8 })
+    );
+    wing.position.set(0, 0, 0.2);
+    wing.castShadow = true;
+    plane.add(wing);
   }
 
   loadGLB("./assets/models/plane.glb")
     .then((m) => {
       setupModelShadows(m);
-      m.scale.setScalar(1.0);
+
+      // делаем самолёт “адекватного” размера
+      fitModelToSize(m, 4);
+
+      // иногда надо развернуть
       m.rotation.y = Math.PI;
+
       plane.clear();
       plane.add(m);
     })
-    .catch(() => {
+    .catch((e) => {
       showOverlay("⚠️ Не загрузился самолёт:\n./assets/models/plane.glb\n(показал заглушку)");
+      console.warn("Plane load error:", e);
       plane.clear();
       addPlaneFallback();
     });
@@ -151,39 +202,89 @@ function init() {
     setupModelShadows(base);
 
     const area = opts.area ?? 450;
-    const y = opts.y ?? -5;
     const minScale = opts.minScale ?? 0.8;
     const maxScale = opts.maxScale ?? 1.4;
     const avoidCenterRadius = opts.avoidCenterRadius ?? 30;
+    const targetSize = opts.targetSize ?? 6;
 
     for (let i = 0; i < count; i++) {
       const inst = base.clone(true);
 
-      let x = 0, z = 0;
+      // авто-размер и посадка на землю
+      fitModelToSize(inst, targetSize);
+      placeModelOnGround(inst, GROUND_Y);
+
+      // позиция
+      let x = 0,
+        z = 0;
       for (let t = 0; t < 30; t++) {
         x = randBetween(-area, area);
         z = randBetween(-area, area);
         if (Math.hypot(x, z) > avoidCenterRadius) break;
       }
 
-      inst.position.set(x, y, z);
-      inst.scale.setScalar(randBetween(minScale, maxScale));
+      inst.position.x += x;
+      inst.position.z += z;
+
+      // случайный масштаб (чуть)
+      inst.scale.multiplyScalar(randBetween(minScale, maxScale));
+
+      // поворот
       inst.rotation.y = randBetween(0, Math.PI * 2);
+
       world.add(inst);
     }
   }
 
   (async () => {
     try {
-      await spawnMany("./assets/models/house.glb", 25, { area: 220, avoidCenterRadius: 40 });
-      await spawnMany("./assets/models/tree.glb", 140, { area: 420, avoidCenterRadius: 25 });
-      await spawnMany("./assets/models/mountain.glb", 20, { area: 520, minScale: 3, maxScale: 7, avoidCenterRadius: 180 });
-    } catch {
+      await spawnMany("./assets/models/house.glb", 25, {
+        area: 220,
+        avoidCenterRadius: 40,
+        targetSize: 8, // домики чуть крупнее
+        minScale: 0.9,
+        maxScale: 1.2,
+      });
+
+      await spawnMany("./assets/models/tree.glb", 140, {
+        area: 420,
+        avoidCenterRadius: 25,
+        targetSize: 10, // деревья выше
+        minScale: 0.7,
+        maxScale: 1.4,
+      });
+
+      await spawnMany("./assets/models/mountain.glb", 20, {
+        area: 520,
+        avoidCenterRadius: 180,
+        targetSize: 70, // горы очень крупные
+        minScale: 0.8,
+        maxScale: 1.2,
+      });
+    } catch (e) {
       showOverlay(
-        "⚠️ Окружение не загрузилось (house/tree/mountain).\n" +
-        "Проверь, что эти файлы реально доступны по ссылкам:\n" +
-        "/assets/models/house.glb\n/assets/models/tree.glb\n/assets/models/mountain.glb"
+        "⚠️ Окружение не загрузилось.\nПроверь файлы:\n" +
+          "- ./assets/models/house.glb\n" +
+          "- ./assets/models/tree.glb\n" +
+          "- ./assets/models/mountain.glb"
       );
+      console.warn("World load error:", e);
+
+      // кубики-заглушки
+      const boxGeo = new THREE.BoxGeometry(2, 2, 2);
+      for (let i = 0; i < 40; i++) {
+        const cube = new THREE.Mesh(
+          boxGeo,
+          new THREE.MeshStandardMaterial({
+            color: new THREE.Color().setHSL(Math.random(), 0.6, 0.55),
+            roughness: 0.9,
+          })
+        );
+        cube.position.set(randBetween(-200, 200), randBetween(GROUND_Y + 1, 12), randBetween(-200, 200));
+        cube.castShadow = true;
+        cube.receiveShadow = true;
+        world.add(cube);
+      }
     }
   })();
 
@@ -215,7 +316,7 @@ function init() {
     velocity.y += upDown * speed * 0.7;
 
     plane.position.addScaledVector(velocity, dt);
-    plane.position.y = THREE.MathUtils.clamp(plane.position.y, -2, 220);
+    plane.position.y = THREE.MathUtils.clamp(plane.position.y, GROUND_Y + 2, 220);
   }
 
   function updateCamera(dt) {

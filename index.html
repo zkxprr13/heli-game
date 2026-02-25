@@ -6,7 +6,7 @@
     <title>Plane Fly</title>
     <link rel="stylesheet" href="./style.css" />
 
-    <!-- importmap нужен, чтобы addons (GLTFLoader/OrbitControls) работали в браузере -->
+    <!-- ✅ importmap нужен, чтобы GLTFLoader мог импортировать "three" -->
     <script type="importmap">
       {
         "imports": {
@@ -19,4 +19,16 @@
   <body>
     <div id="hud">
       <div class="hud-title">Время в игре</div>
-      <div
+      <div id="timer" class="hud-timer">00:00</div>
+      <div class="hud-hint">
+        W/A/S/D — летать<br />
+        Q/E — вверх/вниз<br />
+        Shift — ускорение
+      </div>
+    </div>
+
+    <canvas id="game"></canvas>
+
+    <script type="module" src="./game.js?v=1001"></script>
+  </body>
+</html>

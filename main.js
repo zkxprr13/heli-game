@@ -1,10 +1,7 @@
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
-
-console.log("main.js loaded ✅");
+console.log("main.js started");
 document.body.insertAdjacentHTML(
   "beforeend",
-  "<div style='position:fixed;left:12px;top:12px;z-index:99999;background:#000a;color:#fff;padding:6px 8px;border-radius:8px;font:12px system-ui'>main.js loaded ✅</div>"
+  "<div id='startup-overlay' style='position:fixed;left:12px;top:12px;z-index:99999;background:#000a;color:#fff;padding:6px 8px;border-radius:8px;font:12px system-ui'>main.js started</div>"
 );
 
 function showOverlay(msg) {
@@ -38,7 +35,38 @@ window.addEventListener("unhandledrejection", (e) => {
 
 window.addEventListener("load", init);
 
-function init() {
+async function init() {
+  let THREE;
+  let GLTFLoader;
+
+  try {
+    THREE = await import("./vendor/three/three.module.js");
+    ({ GLTFLoader } = await import("./vendor/three/GLTFLoader.js"));
+  } catch (error) {
+    showOverlay(
+      "❌ Не удалось загрузить локальные модули Three.js:\n" +
+        "- ./vendor/three/three.module.js\n" +
+        "- ./vendor/three/GLTFLoader.js\n" +
+        "Проверь, что файлы закоммичены в репозиторий."
+    );
+    console.error("Failed to load local Three.js modules", error);
+
+    const canvas = document.getElementById("game");
+    if (canvas instanceof HTMLCanvasElement) {
+      const ctx = canvas.getContext("2d");
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      if (ctx) {
+        ctx.fillStyle = "#0b1020";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#f87171";
+        ctx.font = "18px system-ui";
+        ctx.fillText("Three.js vendor-файлы не найдены", 24, 48);
+      }
+    }
+    return;
+  }
+
   const canvas = document.getElementById("game");
   const timerEl = document.getElementById("timer");
 

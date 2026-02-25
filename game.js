@@ -55,11 +55,6 @@ ground.position.y = GROUND_Y;
 ground.receiveShadow = true;
 scene.add(ground);
 
-// ---------------- PLAY AREA BOUNDS ----------------
-// ground = 700x700 => half-size = 350
-const PLAY_AREA_HALF = 350;
-const BOUND_MARGIN = 1.5; // небольшой отступ внутрь, чтобы не залипать на границе
-
 // grass (optional)
 new THREE.TextureLoader().load(
   `${BASE}/assets/textures/grass.jpg`,
@@ -102,6 +97,16 @@ function placeOnGround(model, groundY) {
 function randBetween(a, b) {
   return a + Math.random() * (b - a);
 }
+
+// ---------------- FIXED OBJECTS (NEW) ----------------
+// Эти деревья всегда будут стоять на одних и тех же местах.
+const FIXED_TREES = [
+  { x: -260, z: -220, rotY: 0.2, scale: 1.05 },
+  { x: -180, z: -40,  rotY: 1.7, scale: 0.95 },
+  { x: -40,  z:  210, rotY: 3.1, scale: 1.15 },
+  { x:  120, z:  90,  rotY: 2.2, scale: 1.00 },
+  { x:  260, z: -160, rotY: 0.9, scale: 1.10 },
+];
 
 // ---------------- PLANE ----------------
 const plane = new THREE.Group();
@@ -174,8 +179,17 @@ async function buildWorld() {
     fitModelToSize(treeBase, 10);
     placeOnGround(treeBase, GROUND_Y);
 
-    // меньше деревьев: 18
-    for (let i = 0; i < 18; i++) {
+    // --- FIXED TREES (NEW) ---
+    for (const p of FIXED_TREES) {
+      const t = treeBase.clone(true);
+      t.position.set(p.x, GROUND_Y, p.z);
+      t.rotation.y = p.rotY ?? 0;
+      t.scale.multiplyScalar(p.scale ?? 1);
+      scene.add(t);
+    }
+
+    // меньше деревьев: 18 (минус фиксированные)
+    for (let i = 0; i < Math.max(0, 18 - FIXED_TREES.length); i++) {
       const t = treeBase.clone(true);
       t.position.set(randBetween(-300, 300), GROUND_Y, randBetween(-300, 300));
       t.rotation.y = randBetween(0, Math.PI * 2);
@@ -270,23 +284,6 @@ function updateFlight(dt) {
   plane.position.addScaledVector(forward, speed * dt);
 
   plane.position.y = GROUND_Y + altitude;
-
-    // --- invisible boundary box (bounce + turn around) ---
-  const limit = PLAY_AREA_HALF - BOUND_MARGIN;
-  const x = plane.position.x;
-  const z = plane.position.z;
-
-  // если вышли за пределы поля — ставим на границу и разворачиваем
-  if (x > limit || x < -limit || z > limit || z < -limit) {
-    plane.position.x = THREE.MathUtils.clamp(x, -limit, limit);
-    plane.position.z = THREE.MathUtils.clamp(z, -limit, limit);
-
-    // разворот на 180°
-    plane.rotation.y += Math.PI;
-
-    // небольшое "гашение" скорости, как удар об стену
-    speed *= 0.6;
-  }
 }
 
 // ---------------- CAMERA ----------------

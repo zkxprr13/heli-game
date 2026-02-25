@@ -1,52 +1,12 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-/**
- * ✅ ВАЖНО ДЛЯ GITHUB PAGES:
- * твой сайт: https://zkxprr13.github.io/heli-game/
- * поэтому все ассеты грузим через /heli-game/...
- */
 const BASE = "/heli-game";
 
-// ---------- UI: badge + overlay ----------
+// ---------------- TIMER ----------------
 const timerEl = document.getElementById("timer");
-
-document.body.insertAdjacentHTML(
-  "beforeend",
-  "<div id='boot-badge' style='position:fixed;left:12px;top:12px;z-index:99999;background:rgba(0,0,0,0.65);color:#fff;padding:8px 10px;border-radius:10px;font:12px system-ui'>game.js loaded ✅</div>"
-);
-
-function overlay(msg) {
-  let el = document.getElementById("overlay");
-  if (!el) {
-    el = document.createElement("div");
-    el.id = "overlay";
-    el.style.position = "fixed";
-    el.style.left = "12px";
-    el.style.bottom = "12px";
-    el.style.maxWidth = "760px";
-    el.style.maxHeight = "42vh";
-    el.style.overflow = "auto";
-    el.style.padding = "10px 12px";
-    el.style.borderRadius = "10px";
-    el.style.background = "rgba(0,0,0,0.75)";
-    el.style.color = "#fff";
-    el.style.font = "12px system-ui";
-    el.style.whiteSpace = "pre-wrap";
-    el.style.zIndex = "99999";
-    document.body.appendChild(el);
-  }
-  el.textContent = msg || "";
-}
-
-window.addEventListener("error", (e) => overlay("❌ JS error:\n" + (e?.message || e)));
-window.addEventListener("unhandledrejection", (e) =>
-  overlay("❌ Promise error:\n" + (e?.reason?.message || e?.reason || e))
-);
-
-// ---------- Timer (always) ----------
 const start = performance.now();
+
 setInterval(() => {
   if (!timerEl) return;
   const sec = Math.floor((performance.now() - start) / 1000);
@@ -55,313 +15,170 @@ setInterval(() => {
   timerEl.textContent = `${mm}:${ss}`;
 }, 250);
 
-// ---------- Scene / Camera / Renderer ----------
+// ---------------- SCENE ----------------
 const canvas = document.getElementById("game");
-if (!canvas) {
-  overlay('❌ Нет <canvas id="game"></canvas> в index.html');
-  throw new Error("canvas#game missing");
-}
-canvas.style.width = "100vw";
-canvas.style.height = "100vh";
-
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
-scene.fog = new THREE.Fog(0x87ceeb, 80, 700);
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2500);
-camera.position.set(0, 18, -38);
+const camera = new THREE.PerspectiveCamera(
+  65,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  2000
+);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-renderer.setSize(window.innerWidth, window.innerHeight, false);
-
+renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-// ---------- Light ----------
-scene.add(new THREE.HemisphereLight(0xffffff, 0x2b4b2b, 0.95));
+// ---------------- LIGHT ----------------
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
 
-const sun = new THREE.DirectionalLight(0xffffff, 1.15);
-sun.position.set(80, 140, 60);
+const sun = new THREE.DirectionalLight(0xffffff, 1);
+sun.position.set(50, 100, 50);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.near = 1;
-sun.shadow.camera.far = 800;
-sun.shadow.camera.left = -260;
-sun.shadow.camera.right = 260;
-sun.shadow.camera.top = 260;
-sun.shadow.camera.bottom = -260;
 scene.add(sun);
 
-// ---------- Ground + grass texture ----------
-const GROUND_Y = -5;
+// ---------------- GROUND (меньше) ----------------
+const GROUND_Y = -2;
 
-const groundMat = new THREE.MeshStandardMaterial({
-  color: 0x2f8f2f,
-  roughness: 1.0,
-  metalness: 0.0,
-});
-
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(1800, 1800), groundMat);
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(600, 600),
+  new THREE.MeshStandardMaterial({ color: 0x3fa34d })
+);
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = GROUND_Y;
 ground.receiveShadow = true;
 scene.add(ground);
 
-// grass texture (optional)
-new THREE.TextureLoader().load(
-  `${BASE}/assets/textures/grass.jpg`,
-  (tex) => {
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(90, 90);
-    groundMat.map = tex;
-    groundMat.color.set(0xffffff);
-    groundMat.needsUpdate = true;
-  },
-  undefined,
-  () => overlay(`⚠️ Не загрузилась трава: ${BASE}/assets/textures/grass.jpg\nПол будет зелёным.`)
-);
+// ---------------- MODEL LOADER ----------------
+const loader = new GLTFLoader();
 
-// тестовый куб (чтобы всегда видеть сцену)
-const testCube = new THREE.Mesh(
-  new THREE.BoxGeometry(3, 3, 3),
-  new THREE.MeshStandardMaterial({ color: 0xff00ff })
-);
-testCube.position.set(6, GROUND_Y + 2, 0);
-testCube.castShadow = true;
-testCube.receiveShadow = true;
-scene.add(testCube);
-
-// ---------- Model helpers ----------
-const gltfLoader = new GLTFLoader();
-
-function setupModelShadows(root) {
-  root.traverse((n) => {
-    if (n.isMesh) {
-      n.castShadow = true;
-      n.receiveShadow = true;
-    }
-  });
-}
-
-function fitModelToSize(model, targetSize) {
-  const box = new THREE.Box3().setFromObject(model);
-  const size = new THREE.Vector3();
-  box.getSize(size);
-  const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  const s = targetSize / maxDim;
-  model.scale.multiplyScalar(s);
-}
-
-function placeModelOnGround(model, groundY) {
-  const box = new THREE.Box3().setFromObject(model);
-  model.position.y += groundY - box.min.y;
-}
-
-function randBetween(a, b) {
-  return a + Math.random() * (b - a);
-}
-
-function loadGLB(url) {
+function loadModel(url) {
   return new Promise((resolve, reject) => {
-    console.log("Loading model:", url);
-    gltfLoader.load(
-      url,
-      (gltf) => {
-        console.log("Loaded OK:", url);
-        resolve(gltf.scene);
-      },
-      undefined,
-      (err) => {
-        console.error("FAILED:", url, err);
-        overlay(`❌ Не загрузилась модель:\n${url}\n(Открой F12 → Network, увидишь 404 если путь неверный)`);
-        reject(err);
-      }
-    );
+    loader.load(url, (g) => resolve(g.scene), undefined, reject);
   });
 }
 
-function cloneDeep(obj) {
-  return obj.clone(true);
-}
-
-// ---------- Plane ----------
+// ---------------- PLANE ----------------
 const plane = new THREE.Group();
-plane.position.set(0, 12, 0);
+plane.position.set(0, 8, 0);
 scene.add(plane);
 
-// fallback plane
-function addPlaneFallback() {
-  plane.clear();
+function addFallbackPlane() {
   const body = new THREE.Mesh(
     new THREE.ConeGeometry(0.6, 3, 8),
-    new THREE.MeshStandardMaterial({ color: 0xffd166, roughness: 0.7 })
+    new THREE.MeshStandardMaterial({ color: 0xffaa00 })
   );
   body.rotation.x = Math.PI / 2;
-  body.castShadow = true;
-
-  const wing = new THREE.Mesh(
-    new THREE.BoxGeometry(2.2, 0.12, 0.6),
-    new THREE.MeshStandardMaterial({ color: 0x8ecae6, roughness: 0.8 })
-  );
-  wing.position.set(0, 0, 0.2);
-  wing.castShadow = true;
-
   plane.add(body);
-  plane.add(wing);
 }
 
-loadGLB(`${BASE}/assets/models/plane.glb`)
+loadModel(`${BASE}/assets/models/plane.glb`)
   .then((model) => {
-    setupModelShadows(model);
-    fitModelToSize(model, 5);
-    placeModelOnGround(model, 0);
-
-    // если самолёт смотрит не туда — тут крути
+    model.scale.setScalar(2);
     model.rotation.y = Math.PI;
-
-    plane.clear();
     plane.add(model);
-    plane.position.y = 10;
   })
   .catch(() => {
-    overlay(`⚠️ plane.glb не загрузился: ${BASE}/assets/models/plane.glb\nИспользую заглушку.`);
-    addPlaneFallback();
+    addFallbackPlane();
   });
 
-// ---------- World ----------
-const world = new THREE.Group();
-scene.add(world);
+// ---------------- МИНИМАЛЬНОЕ ОКРУЖЕНИЕ ----------------
+async function addLightWorld() {
+  try {
+    const tree = await loadModel(`${BASE}/assets/models/tree.glb`);
+    tree.scale.setScalar(4);
 
-async function spawnMany(modelUrl, count, opts) {
-  const base = await loadGLB(modelUrl);
-  setupModelShadows(base);
+    for (let i = 0; i < 15; i++) {
+      const t = tree.clone(true);
+      t.position.set(
+        (Math.random() - 0.5) * 400,
+        GROUND_Y,
+        (Math.random() - 0.5) * 400
+      );
+      scene.add(t);
+    }
 
-  // нормализуем базу
-  fitModelToSize(base, opts.targetSize);
-  placeModelOnGround(base, GROUND_Y);
+    const house = await loadModel(`${BASE}/assets/models/house.glb`);
+    house.scale.setScalar(3);
 
-  for (let i = 0; i < count; i++) {
-    const obj = cloneDeep(base);
-
-    obj.position.set(randBetween(-opts.area, opts.area), 0, randBetween(-opts.area, opts.area));
-    obj.rotation.y = randBetween(0, Math.PI * 2);
-
-    const s = randBetween(opts.minScale, opts.maxScale);
-    obj.scale.multiplyScalar(s);
-
-    placeModelOnGround(obj, GROUND_Y);
-    world.add(obj);
-  }
+    for (let i = 0; i < 6; i++) {
+      const h = house.clone(true);
+      h.position.set(
+        (Math.random() - 0.5) * 300,
+        GROUND_Y,
+        (Math.random() - 0.5) * 300
+      );
+      scene.add(h);
+    }
+  } catch {}
 }
 
-(async () => {
-  try {
-    await spawnMany(`${BASE}/assets/models/house.glb`, 25, {
-      targetSize: 10,
-      area: 260,
-      minScale: 0.85,
-      maxScale: 1.2,
-    });
+addLightWorld();
 
-    await spawnMany(`${BASE}/assets/models/tree.glb`, 120, {
-      targetSize: 12,
-      area: 520,
-      minScale: 0.7,
-      maxScale: 1.5,
-    });
-
-    await spawnMany(`${BASE}/assets/models/mountain.glb`, 16, {
-      targetSize: 110,
-      area: 700,
-      minScale: 0.8,
-      maxScale: 1.25,
-    });
-
-    // если всё ок — очищаем overlay
-    overlay("");
-  } catch (e) {
-    console.warn("World spawn failed:", e);
-    // overlay уже покажет конкретный файл
-  }
-})();
-
-// ---------- Mouse look (OrbitControls) ----------
-// Мышь крутит камеру вокруг самолёта, но не влияет на движение самолёта.
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enablePan = false;
-controls.enableZoom = false;
-controls.enableDamping = true;
-controls.dampingFactor = 0.06;
-
-// Чтобы вращение было вокруг самолёта:
-controls.target.copy(plane.position);
-
-// ---------- Controls (WASD/QE/Shift) ----------
+// ---------------- CONTROLS ----------------
 const keys = new Set();
 window.addEventListener("keydown", (e) => keys.add(e.code));
 window.addEventListener("keyup", (e) => keys.delete(e.code));
 
-const velocity = new THREE.Vector3();
-const forward = new THREE.Vector3();
+let speed = 0;
 
 function updatePlane(dt) {
-  const baseSpeed = 20;
-  const boost = keys.has("ShiftLeft") || keys.has("ShiftRight") ? 2.0 : 1.0;
+  const accel = 20;
+  const maxSpeed = 60;
 
-  const yaw =
-    (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) -
-    (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0);
+  if (keys.has("KeyW")) speed += accel * dt;
+  if (keys.has("KeyS")) speed -= accel * dt;
 
-  const pitch =
-    (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) -
-    (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0);
+  speed = THREE.MathUtils.clamp(speed, 0, maxSpeed);
 
-  const upDown = (keys.has("KeyE") ? 1 : 0) - (keys.has("KeyQ") ? 1 : 0);
+  if (keys.has("ShiftLeft")) speed *= 1.01;
 
-  // Повороты самолёта только с клавиатуры
-  plane.rotation.y += yaw * dt * 1.25;
-  plane.rotation.x += pitch * dt * 0.9;
-  plane.rotation.x = THREE.MathUtils.clamp(plane.rotation.x, -1.0, 1.0);
+  if (keys.has("KeyA")) plane.rotation.y += 1.5 * dt;
+  if (keys.has("KeyD")) plane.rotation.y -= 1.5 * dt;
 
-  // Вперёд по локальной оси Z
-  forward.set(0, 0, 1).applyQuaternion(plane.quaternion).normalize();
+  if (keys.has("KeyQ")) plane.position.y += 15 * dt;
+  if (keys.has("KeyE")) plane.position.y -= 15 * dt;
 
-  const speed = baseSpeed * boost;
-  velocity.copy(forward).multiplyScalar(speed);
-  velocity.y += upDown * speed * 0.7;
+  const forward = new THREE.Vector3(0, 0, 1)
+    .applyQuaternion(plane.quaternion)
+    .normalize();
 
-  plane.position.addScaledVector(velocity, dt);
-  plane.position.y = THREE.MathUtils.clamp(plane.position.y, GROUND_Y + 2, 240);
+  plane.position.addScaledVector(forward, speed * dt);
 
-  // чтобы OrbitControls вращал вокруг самолёта
-  controls.target.copy(plane.position);
+  plane.position.y = THREE.MathUtils.clamp(plane.position.y, GROUND_Y + 2, 150);
 }
 
-// ---------- Loop ----------
+// ---------------- CAMERA (жёстко сзади) ----------------
+function updateCamera() {
+  const offset = new THREE.Vector3(0, 6, -18)
+    .applyQuaternion(plane.quaternion);
+
+  camera.position.copy(plane.position).add(offset);
+  camera.lookAt(plane.position);
+}
+
+// ---------------- LOOP ----------------
 let last = performance.now();
+
 function animate() {
   const now = performance.now();
   const dt = Math.min((now - last) / 1000, 0.033);
   last = now;
 
   updatePlane(dt);
-
-  // Мышь управляет камерой
-  controls.update();
+  updateCamera();
 
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
+
 animate();
 
-// ---------- Resize ----------
+// ---------------- RESIZE ----------------
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  renderer.setSize(window.innerWidth, window.innerHeight);
 });
-
-// Done
-document.getElementById("boot-badge").textContent = "Three.js running ✅";

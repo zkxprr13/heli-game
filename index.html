@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width,initial-scale=1.0" />
     <title>Plane Fly</title>
     <link rel="stylesheet" href="./style.css" />
+
+    <!-- ✅ importmap нужен, чтобы GLTFLoader мог импортировать "three" -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
   </head>
   <body>
     <div id="hud">
@@ -19,7 +29,6 @@
 
     <canvas id="game"></canvas>
 
-    <!-- ВАЖНО: подключаем game.js, а не main.js -->
-    <script type="module" src="./game.js?v=1000"></script>
+    <script type="module" src="./game.js?v=1001"></script>
   </body>
 </html>

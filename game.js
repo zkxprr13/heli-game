@@ -1,6 +1,9 @@
-import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { buildWorldObjects } from "./worldObjects.js"; // <-- проверь путь!
+import * as THREE from "./vendor/three/build/three.module.js";
+import { GLTFLoader } from "./vendor/three/examples/jsm/loaders/GLTFLoader.js";
+import { OrbitControls } from "./vendor/three/examples/jsm/controls/OrbitControls.js";
+import { TransformControls } from "./vendor/three/examples/jsm/controls/TransformControls.js";
+
+import { buildWorldObjects } from "./worldObject.js";
 
 const BASE = "/heli-game";
 
@@ -142,11 +145,10 @@ loadModel(PLANE_URL)
     plane.position.set(0, GROUND_Y, 0);
   });
 
-// ---------------- WORLD OBJECTS (moved) ----------------
+// ---------------- WORLD OBJECTS ----------------
 buildWorldObjects(scene, GROUND_Y, BASE);
 
-// ---------------- INVISIBLE BOUNDS (NEW) ----------------
-// поле 700x700 => границы [-350..350]. Делаем небольшой отступ внутрь.
+// ---------------- INVISIBLE BOUNDS ----------------
 const WORLD_HALF = 700 / 2;
 const BOUNDS_MARGIN = 6;
 const MIN_X = -WORLD_HALF + BOUNDS_MARGIN;
@@ -262,7 +264,7 @@ function updateFlight(dt) {
   const forward = tmpV.set(0, 0, 1).applyQuaternion(plane.quaternion).normalize();
   plane.position.addScaledVector(forward, speed * dt);
 
-  // ✅ NEW: невидимые стенки
+  // ✅ стенки
   handleWorldBounds(dt);
 
   plane.position.y = GROUND_Y + altitude;
@@ -286,6 +288,143 @@ function updateCamera(dt) {
   camera.lookAt(lookAt);
 }
 
+// =========================================================
+// =================== MAP EDITOR (NEW) =====================
+// =========================================================
+
+let editorEnabled = false;
+
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.enabled = false;
+orbit.enableDamping = true;
+
+const transform = new TransformControls(camera, renderer.domElement);
+transform.enabled = false;
+transform.visible = false;
+scene.add(transform);
+
+// чтобы orbit не мешал, когда тянешь гизмо
+transform.addEventListener("dragging-changed", (e) => {
+  orbit.enabled = editorEnabled && !e.value;
+});
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+function isNonSelectableRoot(obj) {
+  // землю и группу самолёта не даём редактировать
+  return obj === ground || obj === plane;
+}
+
+function pickRootToMove(obj) {
+  // Поднимаемся вверх до прямого потомка scene (так двигаем дом/дерево целиком)
+  let cur = obj;
+  while (cur && cur.parent && cur.parent !== scene) cur = cur.parent;
+  if (!cur || isNonSelectableRoot(cur)) return null;
+  return cur;
+}
+
+function onEditorPointerDown(e) {
+  if (!editorEnabled) return;
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+
+  raycaster.setFromCamera(mouse, camera);
+
+  // выбираем по всем мешам сцены, но потом поднимем к root
+  const meshes = [];
+  scene.traverse((n) => {
+    if (n.isMesh) meshes.push(n);
+  });
+
+  const hits = raycaster.intersectObjects(meshes, true);
+  if (!hits.length) return;
+
+  const root = pickRootToMove(hits[0].object);
+  if (!root) return;
+
+  transform.attach(root);
+}
+
+window.addEventListener("pointerdown", onEditorPointerDown);
+
+function saveMap(key = "heli_map_v1") {
+  const items = [];
+  scene.children.forEach((c) => {
+    if (isNonSelectableRoot(c)) return;
+    // сохраняем только “обычные” объекты (не свет/камера и т.п.)
+    if (c.isLight) return;
+
+    items.push({
+      name: c.name ?? "",
+      type: c.userData?.type ?? "",
+      position: { x: c.position.x, y: c.position.y, z: c.position.z },
+      rotation: { x: c.rotation.x, y: c.rotation.y, z: c.rotation.z },
+      scale: { x: c.scale.x, y: c.scale.y, z: c.scale.z },
+    });
+  });
+
+  localStorage.setItem(key, JSON.stringify({ version: 1, items }));
+  console.log("[Editor] saved:", key);
+}
+
+function loadMap(key = "heli_map_v1") {
+  const raw = localStorage.getItem(key);
+  if (!raw) return console.warn("[Editor] no saved map:", key);
+
+  const data = JSON.parse(raw);
+  const items = data.items ?? [];
+
+  // ВАЖНО: мы не пересоздаём объекты (чтобы ничего не ломать),
+  // а лишь применяем трансформы к существующим прямым детям scene по порядку.
+  const targets = scene.children.filter((c) => !isNonSelectableRoot(c) && !c.isLight);
+
+  for (let i = 0; i < Math.min(items.length, targets.length); i++) {
+    const t = targets[i];
+    const it = items[i];
+    t.position.set(it.position.x, it.position.y, it.position.z);
+    t.rotation.set(it.rotation.x, it.rotation.y, it.rotation.z);
+    t.scale.set(it.scale.x, it.scale.y, it.scale.z);
+  }
+
+  console.log("[Editor] loaded:", key);
+}
+
+window.addEventListener("keydown", (e) => {
+  // Вкл/выкл редактор
+  if (e.code === "F1") {
+    editorEnabled = !editorEnabled;
+    orbit.enabled = editorEnabled;
+    transform.enabled = editorEnabled;
+    transform.visible = editorEnabled;
+
+    if (!editorEnabled) transform.detach();
+    return;
+  }
+
+  if (!editorEnabled) return;
+
+  // режимы трансформации
+  if (e.code === "KeyG") transform.setMode("translate");
+  if (e.code === "KeyR") transform.setMode("rotate");
+  if (e.code === "KeyS") transform.setMode("scale");
+
+  // удалить выбранный объект
+  if (e.code === "Delete") {
+    const obj = transform.object;
+    if (obj && !isNonSelectableRoot(obj)) {
+      transform.detach();
+      obj.removeFromParent();
+    }
+  }
+
+  // сохранить / загрузить
+  if (e.code === "F5") saveMap();
+  if (e.code === "F9") loadMap();
+});
+
 // ---------------- LOOP ----------------
 let last = performance.now();
 function animate() {
@@ -295,6 +434,9 @@ function animate() {
 
   updateFlight(dt);
   updateCamera(dt);
+
+  // editor camera smoothing
+  if (editorEnabled) orbit.update();
 
   renderer.render(scene, camera);
   requestAnimationFrame(animate);

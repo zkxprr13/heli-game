@@ -1,5 +1,7 @@
-import * as THREE from "./vendor/three/three.module.js";
-import { GLTFLoader } from "./vendor/three/GLTFLoader.js";
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+
+console.log("main.js started");
 
 function ensureBadge() {
   document.body.insertAdjacentHTML(
@@ -89,10 +91,6 @@ function init() {
     return;
   }
 
-  if (!THREE.Scene || !GLTFLoader) {
-    showOverlay("❌ Local Three.js vendor files are invalid. Check vendor/three/*.js", "replace");
-    return;
-  }
 
   try {
     const scene = new THREE.Scene();

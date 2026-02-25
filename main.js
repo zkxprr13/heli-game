@@ -87,10 +87,13 @@ function init() {
   const timerEl = document.getElementById("timer");
 
   if (!canvas) {
-    showOverlay("❌ Canvas not found: expected <canvas id=\"game\"></canvas>", "replace");
+    showOverlay('❌ Canvas not found: expected <canvas id="game"></canvas>', "replace");
     return;
   }
 
+  // ✅ FIX: принудительно задаём размер canvas через CSS-стиль
+  canvas.style.width = "100vw";
+  canvas.style.height = "100vh";
 
   try {
     const scene = new THREE.Scene();
@@ -103,7 +106,10 @@ function init() {
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    // ✅ FIX: выставляем размер рендера сразу
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -303,14 +309,14 @@ function init() {
     }
     animate();
 
+    // ✅ FIX: resize handler должен обновлять renderer size
     window.addEventListener("resize", () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setSize(window.innerWidth, window.innerHeight, false);
     });
   } catch (error) {
     showOverlay(`❌ init failed: ${error?.message || error}`, "replace");
-    // eslint-disable-next-line no-console
     console.error(error);
   }
 }

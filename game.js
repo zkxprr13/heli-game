@@ -1,19 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
-const BASE = "/heli-game";
-
-// ---------------- TIMER ----------------
-const timerEl = document.getElementById("timer");
-const start = performance.now();
-setInterval(() => {
-  if (!timerEl) return;
-  const sec = Math.floor((performance.now() - start) / 1000);
-  const mm = String(Math.floor(sec / 60)).padStart(2, "0");
-  const ss = String(sec % 60).padStart(2, "0");
-  timerEl.textContent = `${mm}:${ss}`;
-}, 250);
-
 // ---------------- SCENE ----------------
 const canvas = document.getElementById("game");
 if (!canvas) throw new Error("No canvas#game");
@@ -55,21 +42,6 @@ ground.position.y = GROUND_Y;
 ground.receiveShadow = true;
 scene.add(ground);
 
-// grass (optional)
-new THREE.TextureLoader().load(
-  `${BASE}/assets/textures/grass.jpg`,
-  (tex) => {
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(45, 45);
-    groundMat.map = tex;
-    groundMat.color.set(0xffffff);
-    groundMat.needsUpdate = true;
-  },
-  undefined,
-  () => {}
-);
-
 // ---------------- GLTF ----------------
 const loader = new GLTFLoader();
 function loadModel(url) {
@@ -102,7 +74,7 @@ function randBetween(a, b) {
 const plane = new THREE.Group();
 scene.add(plane);
 
-const PLANE_URL = `${BASE}/assets/models/plane.glb`;
+const PLANE_URL = "/assets/models/plane.glb";
 
 function addFallbackPlane() {
   plane.clear();
@@ -131,8 +103,6 @@ loadModel(PLANE_URL)
     model.position.set(0, 0, 0);
     placeOnGround(model, 0);
 
-    // ✅ РАЗВОРОТ самолёта:
-    // раньше было Math.PI, теперь ставим 0 (самолёт полетит "вперёд" в нашу ось)
     model.rotation.y = 0;
 
     plane.clear();
@@ -148,7 +118,7 @@ loadModel(PLANE_URL)
 // ---------------- WORLD: 2 houses + fewer trees ----------------
 async function buildWorld() {
   try {
-    const houseBase = await loadModel(`${BASE}/assets/models/house.glb`);
+    const houseBase = await loadModel("/assets/models/house.glb");
     setupShadows(houseBase);
     fitModelToSize(houseBase, 12);
     placeOnGround(houseBase, GROUND_Y);
@@ -165,7 +135,7 @@ async function buildWorld() {
   } catch {}
 
   try {
-    const treeBase = await loadModel(`${BASE}/assets/models/tree.glb`);
+    const treeBase = await loadModel("/assets/models/tree.glb");
     setupShadows(treeBase);
     fitModelToSize(treeBase, 10);
     placeOnGround(treeBase, GROUND_Y);
@@ -275,7 +245,7 @@ function updateFlight(dt) {
   plane.position.y = GROUND_Y + altitude;
 }
 
-// ---------------- CAMERA: cinematic chase (no mouse) ----------------
+// ---------------- CAMERA ----------------
 const desiredPos = new THREE.Vector3();
 const lookAt = new THREE.Vector3();
 const tmp = new THREE.Vector3();

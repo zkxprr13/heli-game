@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
-const BASE = "/heli-game";
 const loader = new GLTFLoader();
 
 function loadModel(url) {
@@ -36,31 +35,41 @@ function randBetween(a, b) {
   return a + Math.random() * (b - a);
 }
 
-export async function buildWorld(scene, groundY) {
+// Фиксированные билборды "по твоей карте" — можешь править тут
+const FIXED_BILLBOARDS = [
+  { x: -320, z:  320, rotY:  0.3, scale: 1.00 },
+  { x: -210, z:  290, rotY: -0.2, scale: 1.00 },
+  { x:  -90, z:  250, rotY:  0.7, scale: 1.00 },
+  { x:   60, z:  320, rotY: -0.2, scale: 1.00 },
+  { x:  250, z:  290, rotY:  0.4, scale: 1.00 },
 
-  // -------- GROUND --------
-  const groundMat = new THREE.MeshStandardMaterial({
-    color: 0x3fa34d,
-    roughness: 1,
-  });
+  { x:  -60, z:  170, rotY:  0.2, scale: 1.00 },
+  { x:   50, z:  140, rotY: -0.6, scale: 1.00 },
+  { x:  150, z:  210, rotY:  0.9, scale: 1.00 },
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(700, 700), groundMat);
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = groundY;
-  ground.receiveShadow = true;
-  scene.add(ground);
+  { x:  120, z:   30, rotY:  0.4, scale: 1.30 },
+  { x:  -20, z:   20, rotY: -0.2, scale: 1.00 },
+  { x: -140, z:   70, rotY:  0.7, scale: 1.00 },
+  { x: -220, z:  120, rotY: -0.5, scale: 1.00 },
 
-  new THREE.TextureLoader().load(`${BASE}/assets/textures/grass.jpg`, (tex) => {
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(45, 45);
-    groundMat.map = tex;
-    groundMat.color.set(0xffffff);
-    groundMat.needsUpdate = true;
-  });
+  { x:  -70, z:  -40, rotY:  0.1, scale: 1.00 },
+  { x:   40, z:  -90, rotY: -0.4, scale: 1.00 },
+  { x:  150, z:  -40, rotY:  0.5, scale: 1.00 },
+  { x: -180, z: -120, rotY:  0.9, scale: 1.00 },
 
-  // -------- HOUSES --------
+  { x: -320, z: -220, rotY:  0.2, scale: 1.00 },
+  { x: -240, z: -280, rotY: -0.1, scale: 1.00 },
+  { x: -120, z: -300, rotY:  0.6, scale: 1.00 },
+  { x:   10, z: -320, rotY: -0.3, scale: 1.00 },
+  { x:  140, z: -290, rotY:  0.2, scale: 1.00 },
+  { x:  260, z: -260, rotY: -0.4, scale: 1.00 },
+];
+
+// baseUrl передаём из game.js ("/heli-game"), чтобы на GitHub Pages не было сюрпризов
+export async function buildWorldObjects(scene, groundY, baseUrl) {
+  // --- houses ---
   try {
-    const houseBase = await loadModel(`${BASE}/assets/models/house.glb`);
+    const houseBase = await loadModel(`${baseUrl}/assets/models/house.glb`);
     setupShadows(houseBase);
     fitModelToSize(houseBase, 12);
     placeOnGround(houseBase, groundY);
@@ -74,12 +83,11 @@ export async function buildWorld(scene, groundY) {
     h2.position.set(200, groundY, 160);
     h2.rotation.y = -1.2;
     scene.add(h2);
-
   } catch {}
 
-  // -------- TREES --------
+  // --- trees (как в твоём исходнике: 18 рандомных) ---
   try {
-    const treeBase = await loadModel(`${BASE}/assets/models/tree.glb`);
+    const treeBase = await loadModel(`${baseUrl}/assets/models/tree.glb`);
     setupShadows(treeBase);
     fitModelToSize(treeBase, 10);
     placeOnGround(treeBase, groundY);
@@ -91,6 +99,21 @@ export async function buildWorld(scene, groundY) {
       t.scale.multiplyScalar(randBetween(0.85, 1.25));
       scene.add(t);
     }
+  } catch {}
 
+  // --- billboards (фиксированные) ---
+  try {
+    const billboardBase = await loadModel(`${baseUrl}/assets/models/billboard.glb`);
+    setupShadows(billboardBase);
+    fitModelToSize(billboardBase, 40);
+    placeOnGround(billboardBase, groundY);
+
+    for (const p of FIXED_BILLBOARDS) {
+      const b = billboardBase.clone(true);
+      b.position.set(p.x, groundY, p.z);
+      b.rotation.y = p.rotY ?? 0;
+      b.scale.multiplyScalar(p.scale ?? 1);
+      scene.add(b);
+    }
   } catch {}
 }

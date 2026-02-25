@@ -152,32 +152,32 @@ buildWorldObjects(scene, GROUND_Y, BASE);
 const WORLD_HALF = 700 / 2;
 const BOUNDS_MARGIN = 6;
 const MIN_X = -WORLD_HALF + BOUNDS_MARGIN;
-const MAX_X =  WORLD_HALF - BOUNDS_MARGIN;
+const MAX_X = WORLD_HALF - BOUNDS_MARGIN;
 const MIN_Z = -WORLD_HALF + BOUNDS_MARGIN;
-const MAX_Z =  WORLD_HALF - BOUNDS_MARGIN;
+const MAX_Z = WORLD_HALF - BOUNDS_MARGIN;
 
 let bounceCooldown = 0;
 
-// ---------------- ARCADE FLIGHT (W accel, S brake, no Q/E) ----------------
+// ---------------- ARCADE FLIGHT ----------------
 const keys = new Set();
 window.addEventListener("keydown", (e) => keys.add(e.code));
 window.addEventListener("keyup", (e) => keys.delete(e.code));
 
-let speed = 0;       // forward speed
-let altitude = 0;    // height over ground
-let vAlt = 0;        // vertical speed (altitude velocity)
+let speed = 0;
+let altitude = 0;
+let vAlt = 0;
 
 const MAX_SPEED = 95;
 const ACCEL = 34;
 const BRAKE = 28;
 const DRAG = 14;
 
-const TAKEOFF_SPEED = 28;   // above -> start gaining lift
-const STALL_SPEED = 18;     // below -> lose lift faster
+const TAKEOFF_SPEED = 28;
+const STALL_SPEED = 18;
 
-const LIFT_POWER = 14;      // how fast we gain altitude when fast
-const DESCENT_POWER = 10;   // how fast we lose altitude when slow
-const V_DAMP = 3.5;         // smooth vertical
+const LIFT_POWER = 14;
+const DESCENT_POWER = 10;
+const V_DAMP = 3.5;
 
 const YAW_RATE = 1.6;
 const BANK_MAX = 0.55;
@@ -194,16 +194,12 @@ function handleWorldBounds(dt) {
   const out = x < MIN_X || x > MAX_X || z < MIN_Z || z > MAX_Z;
   if (!out) return;
 
-  // всегда держим внутри
   plane.position.x = THREE.MathUtils.clamp(plane.position.x, MIN_X, MAX_X);
   plane.position.z = THREE.MathUtils.clamp(plane.position.z, MIN_Z, MAX_Z);
 
   if (bounceCooldown > 0) return;
 
-  // разворот на 180°
   plane.rotation.y += Math.PI;
-
-  // чтобы не дребезжало об край + немного гасим скорость
   speed *= 0.65;
   bounceCooldown = 0.25;
 }
@@ -214,7 +210,6 @@ function updateFlight(dt) {
   const boost = keys.has("ShiftLeft") || keys.has("ShiftRight");
   const climb = keys.has("Space");
 
-  // --- speed control ---
   if (w) speed += ACCEL * (boost ? 1.2 : 1.0) * dt;
   else speed -= DRAG * dt;
 
@@ -222,14 +217,12 @@ function updateFlight(dt) {
 
   speed = THREE.MathUtils.clamp(speed, 0, MAX_SPEED);
 
-  // --- steering ---
   const yawInput =
     (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) -
     (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0);
 
   plane.rotation.y += yawInput * YAW_RATE * dt;
 
-  // nice banking (roll), purely visual
   const targetBank = THREE.MathUtils.clamp(-yawInput * 0.45, -BANK_MAX, BANK_MAX);
   plane.rotation.z = THREE.MathUtils.lerp(
     plane.rotation.z,
@@ -237,13 +230,9 @@ function updateFlight(dt) {
     1 - Math.pow(0.001, dt * BANK_SMOOTH)
   );
 
-  // --- altitude behavior ---
   let targetV = 0;
 
-  // Space = подъём
-  if (climb) {
-    targetV += 9.0;
-  }
+  if (climb) targetV += 9.0;
 
   if (speed < TAKEOFF_SPEED) {
     const t = (TAKEOFF_SPEED - speed) / TAKEOFF_SPEED;
@@ -264,7 +253,6 @@ function updateFlight(dt) {
   const forward = tmpV.set(0, 0, 1).applyQuaternion(plane.quaternion).normalize();
   plane.position.addScaledVector(forward, speed * dt);
 
-  // ✅ стенки
   handleWorldBounds(dt);
 
   plane.position.y = GROUND_Y + altitude;
@@ -276,6 +264,9 @@ const lookAt = new THREE.Vector3();
 const tmp = new THREE.Vector3();
 
 function updateCamera(dt) {
+  // ✅ ИЗМЕНЕНИЕ #1: в режиме редактора камера не привязана к самолёту
+  if (editorEnabled) return;
+
   const k = speed / MAX_SPEED;
   const dist = THREE.MathUtils.lerp(22, 30, k);
   const height = THREE.MathUtils.lerp(6.5, 9.0, k);
@@ -289,7 +280,7 @@ function updateCamera(dt) {
 }
 
 // =========================================================
-// =================== MAP EDITOR (NEW) =====================
+// =================== MAP EDITOR ===========================
 // =========================================================
 
 let editorEnabled = false;
@@ -303,7 +294,6 @@ transform.enabled = false;
 transform.visible = false;
 scene.add(transform);
 
-// чтобы orbit не мешал, когда тянешь гизмо
 transform.addEventListener("dragging-changed", (e) => {
   orbit.enabled = editorEnabled && !e.value;
 });
@@ -312,12 +302,10 @@ const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
 function isNonSelectableRoot(obj) {
-  // землю и группу самолёта не даём редактировать
   return obj === ground || obj === plane;
 }
 
 function pickRootToMove(obj) {
-  // Поднимаемся вверх до прямого потомка scene (так двигаем дом/дерево целиком)
   let cur = obj;
   while (cur && cur.parent && cur.parent !== scene) cur = cur.parent;
   if (!cur || isNonSelectableRoot(cur)) return null;
@@ -333,7 +321,6 @@ function onEditorPointerDown(e) {
 
   raycaster.setFromCamera(mouse, camera);
 
-  // выбираем по всем мешам сцены, но потом поднимем к root
   const meshes = [];
   scene.traverse((n) => {
     if (n.isMesh) meshes.push(n);
@@ -354,7 +341,6 @@ function saveMap(key = "heli_map_v1") {
   const items = [];
   scene.children.forEach((c) => {
     if (isNonSelectableRoot(c)) return;
-    // сохраняем только “обычные” объекты (не свет/камера и т.п.)
     if (c.isLight) return;
 
     items.push({
@@ -377,8 +363,6 @@ function loadMap(key = "heli_map_v1") {
   const data = JSON.parse(raw);
   const items = data.items ?? [];
 
-  // ВАЖНО: мы не пересоздаём объекты (чтобы ничего не ломать),
-  // а лишь применяем трансформы к существующим прямым детям scene по порядку.
   const targets = scene.children.filter((c) => !isNonSelectableRoot(c) && !c.isLight);
 
   for (let i = 0; i < Math.min(items.length, targets.length); i++) {
@@ -393,25 +377,31 @@ function loadMap(key = "heli_map_v1") {
 }
 
 window.addEventListener("keydown", (e) => {
-  // Вкл/выкл редактор
+  // ✅ ИЗМЕНЕНИЕ #2: при включении редактора уводим камеру от самолёта
   if (e.code === "F1") {
     editorEnabled = !editorEnabled;
+
     orbit.enabled = editorEnabled;
     transform.enabled = editorEnabled;
     transform.visible = editorEnabled;
 
-    if (!editorEnabled) transform.detach();
+    if (editorEnabled) {
+      orbit.target.set(0, 0, 0);
+      camera.position.set(0, 220, 320);
+      orbit.update();
+    } else {
+      transform.detach();
+    }
+
     return;
   }
 
   if (!editorEnabled) return;
 
-  // режимы трансформации
   if (e.code === "KeyG") transform.setMode("translate");
   if (e.code === "KeyR") transform.setMode("rotate");
   if (e.code === "KeyS") transform.setMode("scale");
 
-  // удалить выбранный объект
   if (e.code === "Delete") {
     const obj = transform.object;
     if (obj && !isNonSelectableRoot(obj)) {
@@ -420,7 +410,6 @@ window.addEventListener("keydown", (e) => {
     }
   }
 
-  // сохранить / загрузить
   if (e.code === "F5") saveMap();
   if (e.code === "F9") loadMap();
 });
@@ -435,7 +424,6 @@ function animate() {
   updateFlight(dt);
   updateCamera(dt);
 
-  // editor camera smoothing
   if (editorEnabled) orbit.update();
 
   renderer.render(scene, camera);

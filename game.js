@@ -3,7 +3,7 @@ import { GLTFLoader } from "./vendor/three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "./vendor/three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "./vendor/three/examples/jsm/controls/TransformControls.js";
 
-import { buildWorldObjects } from "./worldObject.js";
+import { buildWorldObjects } from "./worldObjects.js";
 
 const BASE = "/heli-game";
 

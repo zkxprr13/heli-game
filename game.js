@@ -55,6 +55,11 @@ ground.position.y = GROUND_Y;
 ground.receiveShadow = true;
 scene.add(ground);
 
+// ---------------- PLAY AREA BOUNDS ----------------
+// ground = 700x700 => half-size = 350
+const PLAY_AREA_HALF = 350;
+const BOUND_MARGIN = 1.5; // небольшой отступ внутрь, чтобы не залипать на границе
+
 // grass (optional)
 new THREE.TextureLoader().load(
   `${BASE}/assets/textures/grass.jpg`,
@@ -265,6 +270,23 @@ function updateFlight(dt) {
   plane.position.addScaledVector(forward, speed * dt);
 
   plane.position.y = GROUND_Y + altitude;
+
+    // --- invisible boundary box (bounce + turn around) ---
+  const limit = PLAY_AREA_HALF - BOUND_MARGIN;
+  const x = plane.position.x;
+  const z = plane.position.z;
+
+  // если вышли за пределы поля — ставим на границу и разворачиваем
+  if (x > limit || x < -limit || z > limit || z < -limit) {
+    plane.position.x = THREE.MathUtils.clamp(x, -limit, limit);
+    plane.position.z = THREE.MathUtils.clamp(z, -limit, limit);
+
+    // разворот на 180°
+    plane.rotation.y += Math.PI;
+
+    // небольшое "гашение" скорости, как удар об стену
+    speed *= 0.6;
+  }
 }
 
 // ---------------- CAMERA ----------------

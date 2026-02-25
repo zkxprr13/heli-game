@@ -1,6 +1,12 @@
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 
+console.log("main.js loaded ✅");
+document.body.insertAdjacentHTML(
+  "beforeend",
+  "<div style='position:fixed;left:12px;top:12px;z-index:99999;background:#000a;color:#fff;padding:6px 8px;border-radius:8px;font:12px system-ui'>main.js loaded ✅</div>"
+);
+
 function showOverlay(msg) {
   let el = document.getElementById("overlay");
   if (!el) {

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { buildWorld } from "./worldObjects.js"; // <<< НОВОЕ
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const BASE = "/heli-game";
 
@@ -58,15 +59,14 @@ buildWorld(scene, GROUND_Y); // <<< теперь вся карта вызыва�
 const plane = new THREE.Group();
 scene.add(plane);
 
-const loader = new THREE.GLTFLoader?.() ?? null;
+const loader = new GLTFLoader();
 
 // fallback если loader отдельно подключён
-async function loadPlaneModel() {
-  const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
-  const l = new GLTFLoader();
+function loadPlaneModel() {
   return new Promise((resolve, reject) =>
-    l.load(`${BASE}/assets/models/plane.glb`, (g) => resolve(g.scene), undefined, reject)
+    loader.load(`${BASE}/assets/models/plane.glb`, g => resolve(g.scene), undefined, reject)
   );
+};
 }
 
 function addFallbackPlane() {

@@ -4,7 +4,300 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 const BASE = "/heli-game";
 
 // ---------------- TIMER ----------------
+const timerEl = document.getElementById("timer");import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+const BASE = "/heli-game";
+
+// ---------------- TIMER ----------------
 const timerEl = document.getElementById("timer");
+const start = performance.now();
+setInterval(() => {
+  if (!timerEl) return;
+  const sec = Math.floor((performance.now() - start) / 1000);
+  const mm = String(Math.floor(sec / 60)).padStart(2, "0");
+  const ss = String(sec % 60).padStart(2, "0");
+  timerEl.textContent = `${mm}:${ss}`;
+}, 250);
+
+// ---------------- SCENE ----------------
+const canvas = document.getElementById("game");
+if (!canvas) throw new Error("No canvas#game");
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb);
+scene.fog = new THREE.Fog(0x87ceeb, 80, 700);
+
+const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 2500);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight, false);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+// ---------------- LIGHT ----------------
+scene.add(new THREE.HemisphereLight(0xffffff, 0x3b4b3b, 1.0));
+
+const sun = new THREE.DirectionalLight(0xffffff, 1.15);
+sun.position.set(80, 140, 60);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 800;
+sun.shadow.camera.left = -260;
+sun.shadow.camera.right = 260;
+sun.shadow.camera.top = 260;
+sun.shadow.camera.bottom = -260;
+scene.add(sun);
+
+// ---------------- GROUND ----------------
+const GROUND_Y = -2;
+
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x3fa34d, roughness: 1.0 });
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(700, 700), groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = GROUND_Y;
+ground.receiveShadow = true;
+scene.add(ground);
+
+new THREE.TextureLoader().load(
+  `${BASE}/assets/textures/grass.jpg`,
+  (tex) => {
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(45, 45);
+    groundMat.map = tex;
+    groundMat.color.set(0xffffff);
+    groundMat.needsUpdate = true;
+  }
+);
+
+// ---------------- GLTF ----------------
+const loader = new GLTFLoader();
+function loadModel(url) {
+  return new Promise((resolve, reject) => loader.load(url, (g) => resolve(g.scene), undefined, reject));
+}
+function setupShadows(root) {
+  root.traverse((n) => {
+    if (n.isMesh) {
+      n.castShadow = true;
+      n.receiveShadow = true;
+    }
+  });
+}
+function fitModelToSize(model, targetSize) {
+  const box = new THREE.Box3().setFromObject(model);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  model.scale.multiplyScalar(targetSize / maxDim);
+}
+function placeOnGround(model, groundY) {
+  const box = new THREE.Box3().setFromObject(model);
+  model.position.y += groundY - box.min.y;
+}
+function randBetween(a, b) {
+  return a + Math.random() * (b - a);
+}
+
+// ---------------- PLANE ----------------
+const plane = new THREE.Group();
+scene.add(plane);
+
+const PLANE_URL = `${BASE}/assets/models/plane.glb`;
+
+function addFallbackPlane() {
+  plane.clear();
+  const body = new THREE.Mesh(
+    new THREE.ConeGeometry(0.8, 4.0, 10),
+    new THREE.MeshStandardMaterial({ color: 0xffaa00, roughness: 0.7 })
+  );
+  body.rotation.x = Math.PI / 2;
+  body.castShadow = true;
+
+  const wing = new THREE.Mesh(
+    new THREE.BoxGeometry(3.5, 0.15, 1.0),
+    new THREE.MeshStandardMaterial({ color: 0x8ecae6, roughness: 0.8 })
+  );
+  wing.position.set(0, 0, 0.4);
+  wing.castShadow = true;
+
+  plane.add(body);
+  plane.add(wing);
+}
+
+loadModel(PLANE_URL)
+  .then((model) => {
+    setupShadows(model);
+    fitModelToSize(model, 7);
+    placeOnGround(model, 0);
+    model.rotation.y = 0;
+    plane.clear();
+    plane.add(model);
+    plane.position.set(0, GROUND_Y, 0);
+  })
+  .catch(() => {
+    addFallbackPlane();
+    plane.position.set(0, GROUND_Y, 0);
+  });
+
+// ---------------- WORLD ----------------
+async function buildWorld() {
+  try {
+    const houseBase = await loadModel(`${BASE}/assets/models/house.glb`);
+    setupShadows(houseBase);
+    fitModelToSize(houseBase, 12);
+    placeOnGround(houseBase, GROUND_Y);
+
+    const h1 = houseBase.clone(true);
+    h1.position.set(-220, GROUND_Y, -140);
+    scene.add(h1);
+
+    const h2 = houseBase.clone(true);
+    h2.position.set(200, GROUND_Y, 160);
+    scene.add(h2);
+  } catch {}
+
+  try {
+    const treeBase = await loadModel(`${BASE}/assets/models/tree.glb`);
+    setupShadows(treeBase);
+    fitModelToSize(treeBase, 10);
+    placeOnGround(treeBase, GROUND_Y);
+
+    for (let i = 0; i < 18; i++) {
+      const t = treeBase.clone(true);
+      t.position.set(randBetween(-300, 300), GROUND_Y, randBetween(-300, 300));
+      t.rotation.y = randBetween(0, Math.PI * 2);
+      scene.add(t);
+    }
+  } catch {}
+}
+buildWorld();
+
+// ---------------- CONTROLS ----------------
+const keys = new Set();
+window.addEventListener("keydown", (e) => keys.add(e.code));
+window.addEventListener("keyup", (e) => keys.delete(e.code));
+
+let speed = 0;
+let altitude = 0;
+let vAlt = 0;
+
+const MAX_SPEED = 95;
+const ACCEL = 34;
+const BRAKE = 28;
+const DRAG = 14;
+
+const TAKEOFF_SPEED = 28;
+const STALL_SPEED = 18;
+
+const DESCENT_POWER = 10;
+const V_DAMP = 3.5;
+
+const YAW_RATE = 1.6;
+const BANK_MAX = 0.55;
+const BANK_SMOOTH = 5.0;
+
+const tmpV = new THREE.Vector3();
+
+function updateFlight(dt) {
+  const w = keys.has("KeyW");
+  const s = keys.has("KeyS");
+  const climb = keys.has("Space");
+
+  // --- speed ---
+  if (w) speed += ACCEL * dt;
+  else speed -= DRAG * dt;
+
+  if (s) speed -= BRAKE * dt;
+
+  speed = THREE.MathUtils.clamp(speed, 0, MAX_SPEED);
+
+  // --- steering ---
+  const yawInput =
+    (keys.has("KeyA") ? 1 : 0) -
+    (keys.has("KeyD") ? 1 : 0);
+
+  plane.rotation.y += yawInput * YAW_RATE * dt;
+
+  const targetBank = THREE.MathUtils.clamp(-yawInput * 0.45, -BANK_MAX, BANK_MAX);
+  plane.rotation.z = THREE.MathUtils.lerp(
+    plane.rotation.z,
+    targetBank,
+    1 - Math.pow(0.001, dt * BANK_SMOOTH)
+  );
+
+  // --- altitude ---
+  let targetV = 0;
+
+  // Space = подъём
+  if (climb) {
+    targetV += 9.0;
+  }
+
+  // снижение при малой скорости
+  if (speed < TAKEOFF_SPEED) {
+    const t = (TAKEOFF_SPEED - speed) / TAKEOFF_SPEED;
+    targetV += -THREE.MathUtils.lerp(0.8, DESCENT_POWER, THREE.MathUtils.clamp(t, 0, 1));
+  }
+
+  if (speed < STALL_SPEED) targetV *= 1.15;
+
+  vAlt = THREE.MathUtils.lerp(vAlt, targetV, 1 - Math.pow(0.001, dt * V_DAMP));
+  altitude += vAlt * dt;
+
+  const bankAbs = Math.abs(plane.rotation.z);
+  const extraClearance = bankAbs * 6.0;
+  const minAlt = extraClearance;
+
+  altitude = THREE.MathUtils.clamp(altitude, minAlt, 220);
+
+  const forward = tmpV.set(0, 0, 1).applyQuaternion(plane.quaternion).normalize();
+  plane.position.addScaledVector(forward, speed * dt);
+
+  plane.position.y = GROUND_Y + altitude;
+}
+
+// ---------------- CAMERA ----------------
+const desiredPos = new THREE.Vector3();
+const lookAt = new THREE.Vector3();
+const tmp = new THREE.Vector3();
+
+function updateCamera(dt) {
+  const k = speed / MAX_SPEED;
+  const dist = THREE.MathUtils.lerp(22, 30, k);
+  const height = THREE.MathUtils.lerp(6.5, 9.0, k);
+
+  const backOffset = new THREE.Vector3(0, height, -dist).applyQuaternion(plane.quaternion);
+  desiredPos.copy(plane.position).add(backOffset);
+
+  camera.position.lerp(desiredPos, 1 - Math.pow(0.001, dt));
+  lookAt.copy(plane.position).add(tmp.set(0, 3.0, 10.0).applyQuaternion(plane.quaternion));
+  camera.lookAt(lookAt);
+}
+
+// ---------------- LOOP ----------------
+let last = performance.now();
+function animate() {
+  const now = performance.now();
+  const dt = Math.min((now - last) / 1000, 0.033);
+  last = now;
+
+  updateFlight(dt);
+  updateCamera(dt);
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+animate();
+
+// ---------------- RESIZE ----------------
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+});
 const start = performance.now();
 setInterval(() => {
   if (!timerEl) return;

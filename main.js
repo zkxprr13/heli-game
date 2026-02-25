@@ -4,6 +4,14 @@ import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders
 const canvas = document.getElementById("game");
 const timerEl = document.getElementById("timer");
 
+const ASSET_PATHS = {
+  grass: "./assets/textures/grass.jpg",
+  plane: "./assets/models/plane.glb",
+  house: "./assets/models/house.glb",
+  tree: "./assets/models/tree.glb",
+  mountain: "./assets/models/mountain.glb",
+};
+
 // ---------- Scene / Camera / Renderer ----------
 const scene = new THREE.Scene();
 
@@ -49,7 +57,7 @@ scene.add(sun);
 
 // ---------- Ground with grass texture ----------
 const texLoader = new THREE.TextureLoader();
-const grassTex = texLoader.load("./assets/textures/grass.jpg");
+const grassTex = texLoader.load(ASSET_PATHS.grass);
 
 // плитка травы
 grassTex.wrapS = THREE.RepeatWrapping;
@@ -94,7 +102,10 @@ async function loadGLB(url) {
       url,
       (gltf) => resolve(gltf.scene),
       undefined,
-      (err) => reject(err)
+      (err) => {
+        console.error(`Ошибка загрузки модели: ${url}`, err);
+        reject(err);
+      }
     );
   });
 }
@@ -103,7 +114,7 @@ let planeModel = null;
 
 (async () => {
   try {
-    planeModel = await loadGLB("./assets/models/plane.glb");
+    planeModel = await loadGLB(ASSET_PATHS.plane);
     setupModelShadows(planeModel);
 
     // Подгони масштаб под свою модель:
@@ -179,7 +190,7 @@ async function spawnMany(modelUrl, count, options = {}) {
 (async () => {
   try {
     // Домики ближе к центру (меньше их)
-    await spawnMany("./assets/models/house.glb", 25, {
+    await spawnMany(ASSET_PATHS.house, 25, {
       area: 220,
       y: -5,
       minScale: 0.8,
@@ -189,7 +200,7 @@ async function spawnMany(modelUrl, count, options = {}) {
     });
 
     // Деревья шире по карте (больше)
-    await spawnMany("./assets/models/tree.glb", 140, {
+    await spawnMany(ASSET_PATHS.tree, 140, {
       area: 420,
       y: -5,
       minScale: 0.7,
@@ -198,7 +209,7 @@ async function spawnMany(modelUrl, count, options = {}) {
     });
 
     // Горы по краям (чтобы был “пейзаж”)
-    await spawnMany("./assets/models/mountain.glb", 20, {
+    await spawnMany(ASSET_PATHS.mountain, 20, {
       area: 520,
       y: -5,
       minScale: 3.0,

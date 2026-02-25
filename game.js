@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { buildWorldObjects } from "./worldObjects.js"; // <-- проверь путь!
 
 const BASE = "/heli-game";
 
@@ -94,19 +95,6 @@ function placeOnGround(model, groundY) {
   const box = new THREE.Box3().setFromObject(model);
   model.position.y += groundY - box.min.y;
 }
-function randBetween(a, b) {
-  return a + Math.random() * (b - a);
-}
-
-// ---------------- FIXED OBJECTS (NEW) ----------------
-// Эти деревья всегда будут стоять на одних и тех же местах.
-const FIXED_TREES = [
-  { x: -260, z: -220, rotY: 0.2, scale: 1.05 },
-  { x: -180, z: -40,  rotY: 1.7, scale: 0.95 },
-  { x: -40,  z:  210, rotY: 3.1, scale: 1.15 },
-  { x:  120, z:  90,  rotY: 2.2, scale: 1.00 },
-  { x:  260, z: -160, rotY: 0.9, scale: 1.10 },
-];
 
 // ---------------- PLANE ----------------
 const plane = new THREE.Group();
@@ -154,51 +142,19 @@ loadModel(PLANE_URL)
     plane.position.set(0, GROUND_Y, 0);
   });
 
-// ---------------- WORLD: 2 houses + fewer trees ----------------
-async function buildWorld() {
-  try {
-    const houseBase = await loadModel(`${BASE}/assets/models/house.glb`);
-    setupShadows(houseBase);
-    fitModelToSize(houseBase, 12);
-    placeOnGround(houseBase, GROUND_Y);
+// ---------------- WORLD OBJECTS (moved) ----------------
+buildWorldObjects(scene, GROUND_Y, BASE);
 
-    const h1 = houseBase.clone(true);
-    h1.position.set(-220, GROUND_Y, -140);
-    h1.rotation.y = 0.6;
-    scene.add(h1);
+// ---------------- INVISIBLE BOUNDS (NEW) ----------------
+// поле 700x700 => границы [-350..350]. Делаем небольшой отступ внутрь.
+const WORLD_HALF = 700 / 2;
+const BOUNDS_MARGIN = 6;
+const MIN_X = -WORLD_HALF + BOUNDS_MARGIN;
+const MAX_X =  WORLD_HALF - BOUNDS_MARGIN;
+const MIN_Z = -WORLD_HALF + BOUNDS_MARGIN;
+const MAX_Z =  WORLD_HALF - BOUNDS_MARGIN;
 
-    const h2 = houseBase.clone(true);
-    h2.position.set(200, GROUND_Y, 160);
-    h2.rotation.y = -1.2;
-    scene.add(h2);
-  } catch {}
-
-  try {
-    const treeBase = await loadModel(`${BASE}/assets/models/tree.glb`);
-    setupShadows(treeBase);
-    fitModelToSize(treeBase, 10);
-    placeOnGround(treeBase, GROUND_Y);
-
-    // --- FIXED TREES (NEW) ---
-    for (const p of FIXED_TREES) {
-      const t = treeBase.clone(true);
-      t.position.set(p.x, GROUND_Y, p.z);
-      t.rotation.y = p.rotY ?? 0;
-      t.scale.multiplyScalar(p.scale ?? 1);
-      scene.add(t);
-    }
-
-    // меньше деревьев: 18 (минус фиксированные)
-    for (let i = 0; i < Math.max(0, 18 - FIXED_TREES.length); i++) {
-      const t = treeBase.clone(true);
-      t.position.set(randBetween(-300, 300), GROUND_Y, randBetween(-300, 300));
-      t.rotation.y = randBetween(0, Math.PI * 2);
-      t.scale.multiplyScalar(randBetween(0.85, 1.25));
-      scene.add(t);
-    }
-  } catch {}
-}
-buildWorld();
+let bounceCooldown = 0;
 
 // ---------------- ARCADE FLIGHT (W accel, S brake, no Q/E) ----------------
 const keys = new Set();
@@ -226,6 +182,29 @@ const BANK_MAX = 0.55;
 const BANK_SMOOTH = 5.0;
 
 const tmpV = new THREE.Vector3();
+
+function handleWorldBounds(dt) {
+  bounceCooldown = Math.max(0, bounceCooldown - dt);
+
+  const x = plane.position.x;
+  const z = plane.position.z;
+
+  const out = x < MIN_X || x > MAX_X || z < MIN_Z || z > MAX_Z;
+  if (!out) return;
+
+  // всегда держим внутри
+  plane.position.x = THREE.MathUtils.clamp(plane.position.x, MIN_X, MAX_X);
+  plane.position.z = THREE.MathUtils.clamp(plane.position.z, MIN_Z, MAX_Z);
+
+  if (bounceCooldown > 0) return;
+
+  // разворот на 180°
+  plane.rotation.y += Math.PI;
+
+  // чтобы не дребезжало об край + немного гасим скорость
+  speed *= 0.65;
+  bounceCooldown = 0.25;
+}
 
 function updateFlight(dt) {
   const w = keys.has("KeyW");
@@ -282,6 +261,9 @@ function updateFlight(dt) {
 
   const forward = tmpV.set(0, 0, 1).applyQuaternion(plane.quaternion).normalize();
   plane.position.addScaledVector(forward, speed * dt);
+
+  // ✅ NEW: невидимые стенки
+  handleWorldBounds(dt);
 
   plane.position.y = GROUND_Y + altitude;
 }

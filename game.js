@@ -1,6 +1,19 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
+const BASE = "/heli-game";
+
+// ---------------- TIMER ----------------
+const timerEl = document.getElementById("timer");
+const start = performance.now();
+setInterval(() => {
+  if (!timerEl) return;
+  const sec = Math.floor((performance.now() - start) / 1000);
+  const mm = String(Math.floor(sec / 60)).padStart(2, "0");
+  const ss = String(sec % 60).padStart(2, "0");
+  timerEl.textContent = `${mm}:${ss}`;
+}, 250);
+
 // ---------------- SCENE ----------------
 const canvas = document.getElementById("game");
 if (!canvas) throw new Error("No canvas#game");
@@ -42,6 +55,21 @@ ground.position.y = GROUND_Y;
 ground.receiveShadow = true;
 scene.add(ground);
 
+// grass (optional)
+new THREE.TextureLoader().load(
+  `${BASE}/assets/textures/grass.jpg`,
+  (tex) => {
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(45, 45);
+    groundMat.map = tex;
+    groundMat.color.set(0xffffff);
+    groundMat.needsUpdate = true;
+  },
+  undefined,
+  () => {}
+);
+
 // ---------------- GLTF ----------------
 const loader = new GLTFLoader();
 function loadModel(url) {
@@ -74,7 +102,7 @@ function randBetween(a, b) {
 const plane = new THREE.Group();
 scene.add(plane);
 
-const PLANE_URL = "/assets/models/plane.glb";
+const PLANE_URL = `${BASE}/assets/models/plane.glb`;
 
 function addFallbackPlane() {
   plane.clear();
@@ -103,6 +131,7 @@ loadModel(PLANE_URL)
     model.position.set(0, 0, 0);
     placeOnGround(model, 0);
 
+    // ✅ РАЗВОРОТ самолёта:
     model.rotation.y = 0;
 
     plane.clear();
@@ -118,7 +147,7 @@ loadModel(PLANE_URL)
 // ---------------- WORLD: 2 houses + fewer trees ----------------
 async function buildWorld() {
   try {
-    const houseBase = await loadModel("/assets/models/house.glb");
+    const houseBase = await loadModel(`${BASE}/assets/models/house.glb`);
     setupShadows(houseBase);
     fitModelToSize(houseBase, 12);
     placeOnGround(houseBase, GROUND_Y);
@@ -135,7 +164,7 @@ async function buildWorld() {
   } catch {}
 
   try {
-    const treeBase = await loadModel("/assets/models/tree.glb");
+    const treeBase = await loadModel(`${BASE}/assets/models/tree.glb`);
     setupShadows(treeBase);
     fitModelToSize(treeBase, 10);
     placeOnGround(treeBase, GROUND_Y);
@@ -208,54 +237,41 @@ function updateFlight(dt) {
   );
 
   // --- altitude behavior (smooth, not “falling”) ---
-  // target vertical speed depends on speed
   let targetV = 0;
 
   if (speed >= TAKEOFF_SPEED) {
-    // lift up slowly
     const t = (speed - TAKEOFF_SPEED) / (MAX_SPEED - TAKEOFF_SPEED);
     targetV = THREE.MathUtils.lerp(0.5, LIFT_POWER, THREE.MathUtils.clamp(t, 0, 1));
   } else {
-    // descend smoothly
     const t = (TAKEOFF_SPEED - speed) / TAKEOFF_SPEED;
     targetV = -THREE.MathUtils.lerp(1.5, DESCENT_POWER, THREE.MathUtils.clamp(t, 0, 1));
   }
 
-  // if very slow -> a bit stronger descent, still smooth
   if (speed < STALL_SPEED) targetV *= 1.25;
 
-  // smooth vertical speed
   vAlt = THREE.MathUtils.lerp(vAlt, targetV, 1 - Math.pow(0.001, dt * V_DAMP));
-
   altitude += vAlt * dt;
 
-  // --- anti-ground-clipping for wings ---
-  // when banked, wings go lower -> we enforce higher minimum altitude
   const bankAbs = Math.abs(plane.rotation.z);
-  const extraClearance = bankAbs * 6.0;  // tune: 6 feels good
+  const extraClearance = bankAbs * 6.0;
   const minAlt = 0.0 + extraClearance;
 
   altitude = THREE.MathUtils.clamp(altitude, minAlt, 220);
 
-  // --- move forward ---
   const forward = tmpV.set(0, 0, 1).applyQuaternion(plane.quaternion).normalize();
   plane.position.addScaledVector(forward, speed * dt);
 
-  // --- apply y ---
   plane.position.y = GROUND_Y + altitude;
 }
 
-// ---------------- CAMERA ----------------
+// ---------------- CAMERA: cinematic chase (no mouse) ----------------
 const desiredPos = new THREE.Vector3();
 const lookAt = new THREE.Vector3();
 const tmp = new THREE.Vector3();
 
 function updateCamera(dt) {
-  // dynamic distance: a bit further when faster
   const k = speed / MAX_SPEED;
   const dist = THREE.MathUtils.lerp(22, 30, k);
-
-  // offset: higher when faster + when banked (nice framing)
   const height = THREE.MathUtils.lerp(6.5, 9.0, k) + Math.abs(plane.rotation.z) * 2.0;
 
   const backOffset = new THREE.Vector3(0, height, -dist).applyQuaternion(plane.quaternion);

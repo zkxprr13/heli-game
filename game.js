@@ -70,6 +70,10 @@ const loadingUI = ensureLoadingUI();
 const loadingBar = document.getElementById("loadingBar");
 const loadingPct = document.getElementById("loadingPct");
 
+// ---------------- TIMER (без setInterval) ----------------
+const timerEl = document.getElementById("timer");
+let gameStartTime = 0;
+
 // ---------------- SCENE ----------------
 const canvas = document.getElementById("game");
 if (!canvas) throw new Error("No canvas#game");
@@ -87,14 +91,47 @@ const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerH
 const isTouchDevice =
   ("ontouchstart" in window) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
 
+// =========================================================
+// AUTO QUALITY (NEW) — добавлено, остальной код не трогаю
+// =========================================================
+const dpr = devicePixelRatio || 1;
+const cpuCores = navigator.hardwareConcurrency || 4;
+const smallScreen = Math.min(window.innerWidth, window.innerHeight) <= 820;
+
+// эвристика “слабого девайса” (можешь потом подкрутить)
+const isLowEnd =
+  (isTouchDevice && (dpr >= 2.5 || cpuCores <= 4 || smallScreen)) ||
+  (cpuCores <= 2);
+
+const QUALITY = isLowEnd ? "low" : "high";
+
+// параметры качества
+const qualitySettings = {
+  pixelRatio: Math.min(dpr, isLowEnd ? 1.0 : 2.0),
+  antialias: !isTouchDevice && !isLowEnd,
+  shadows: !isLowEnd,                // low: тени выключаем
+  shadowMapSize: isLowEnd ? 1024 : 2048,
+  cameraFar: isLowEnd ? 1400 : 2500, // low: меньше дальность
+  fogNear: 80,
+  fogFar: isLowEnd ? 520 : 700,      // low: туман ближе
+};
+
+// применяем камеру/туман до рендера
+camera.far = qualitySettings.cameraFar;
+camera.updateProjectionMatrix();
+
+scene.fog.near = qualitySettings.fogNear;
+scene.fog.far = qualitySettings.fogFar;
+// =========================================================
+
 const renderer = new THREE.WebGLRenderer({
   canvas,
-  antialias: !isTouchDevice, // на мобилках часто тяжелее
+  antialias: qualitySettings.antialias,
   powerPreference: "high-performance",
 });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isTouchDevice ? 1.25 : 2));
+renderer.setPixelRatio(qualitySettings.pixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight, false);
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = qualitySettings.shadows;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 // ---------------- LIGHT ----------------
@@ -102,8 +139,9 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0x3b4b3b, 1.0));
 
 const sun = new THREE.DirectionalLight(0xffffff, 1.15);
 sun.position.set(80, 140, 60);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.castShadow = qualitySettings.shadows;
+
+sun.shadow.mapSize.set(qualitySettings.shadowMapSize, qualitySettings.shadowMapSize);
 sun.shadow.camera.near = 1;
 sun.shadow.camera.far = 800;
 sun.shadow.camera.left = -260;
@@ -119,7 +157,7 @@ const groundMat = new THREE.MeshStandardMaterial({ color: 0x3fa34d, roughness: 1
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(700, 700), groundMat);
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = GROUND_Y;
-ground.receiveShadow = true;
+ground.receiveShadow = qualitySettings.shadows;
 scene.add(ground);
 
 // ---------------- LOADING MANAGER ----------------
@@ -175,6 +213,7 @@ function loadModel(url) {
 }
 
 function setupShadows(root) {
+  if (!qualitySettings.shadows) return; // ✅ NEW: на low вообще не трогаем тени
   root.traverse((n) => {
     if (n.isMesh) {
       n.castShadow = true;
@@ -209,14 +248,14 @@ function addFallbackPlane() {
     new THREE.MeshStandardMaterial({ color: 0xffaa00, roughness: 0.7 })
   );
   body.rotation.x = Math.PI / 2;
-  body.castShadow = true;
+  body.castShadow = qualitySettings.shadows;
 
   const wing = new THREE.Mesh(
     new THREE.BoxGeometry(3.5, 0.15, 1.0),
     new THREE.MeshStandardMaterial({ color: 0x8ecae6, roughness: 0.8 })
   );
   wing.position.set(0, 0, 0.4);
-  wing.castShadow = true;
+  wing.castShadow = qualitySettings.shadows;
 
   plane.add(body);
   plane.add(wing);
@@ -259,11 +298,11 @@ window.addEventListener("keyup", (e) => keys.delete(e.code));
 
 // ---------------- INPUT (MOBILE) ----------------
 const touchInput = {
-  yaw: 0,       // -1..1 (лево..право для поворота)
-  w: false,     // газ
-  s: false,     // тормоз
-  climb: false, // подъём
-  boost: false, // ускорение
+  yaw: 0,
+  w: false,
+  s: false,
+  climb: false,
+  boost: false,
 };
 
 function clamp(v, a, b) {
@@ -285,7 +324,6 @@ function createMobileControls() {
   ui.style.fontFamily = "system-ui, -apple-system, Segoe UI, Roboto, Arial";
   document.body.appendChild(ui);
 
-  // ---- Joystick (левый низ) ----
   const joyWrap = document.createElement("div");
   joyWrap.style.position = "absolute";
   joyWrap.style.left = "16px";
@@ -320,7 +358,7 @@ function createMobileControls() {
   joyKnob.style.boxShadow = "0 8px 20px rgba(0,0,0,0.25)";
   joyWrap.appendChild(joyKnob);
 
-  const joyRadius = 45; // фактический радиус движения ручки
+  const joyRadius = 45;
   let joyActive = false;
   let joyPointerId = null;
   let centerX = 0;
@@ -360,9 +398,6 @@ function createMobileControls() {
     const my = ny * mag;
 
     joyKnob.style.transform = `translate(${mx}px, ${my}px)`;
-
-    // для поворота нам нужна горизонталь:
-    // dx < 0 => поворот влево => yawInput должен быть +1
     touchInput.yaw = clamp(-dx / joyRadius, -1, 1);
   });
 
@@ -376,7 +411,6 @@ function createMobileControls() {
   joyWrap.addEventListener("pointercancel", joyEnd);
   joyWrap.addEventListener("lostpointercapture", resetJoy);
 
-  // ---- Buttons (правый низ) ----
   const btnWrap = document.createElement("div");
   btnWrap.style.position = "absolute";
   btnWrap.style.right = "16px";
@@ -455,6 +489,8 @@ const YAW_RATE = 1.6;
 const BANK_MAX = 0.55;
 const BANK_SMOOTH = 5.0;
 
+const tmpV = new THREE.Vector3();
+
 function handleWorldBounds(dt) {
   bounceCooldown = Math.max(0, bounceCooldown - dt);
 
@@ -474,16 +510,12 @@ function handleWorldBounds(dt) {
   bounceCooldown = 0.25;
 }
 
-const tmpV = new THREE.Vector3();
-
 function updateFlight(dt) {
-  // PC + Mobile input
   const w = keys.has("KeyW") || touchInput.w;
   const s = keys.has("KeyS") || touchInput.s;
   const boost = keys.has("ShiftLeft") || keys.has("ShiftRight") || touchInput.boost;
   const climb = keys.has("Space") || touchInput.climb;
 
-  // --- speed control ---
   if (w) speed += ACCEL * (boost ? 1.2 : 1.0) * dt;
   else speed -= DRAG * dt;
 
@@ -491,16 +523,13 @@ function updateFlight(dt) {
 
   speed = THREE.MathUtils.clamp(speed, 0, MAX_SPEED);
 
-  // --- steering (PC keys + mobile joystick) ---
   const keyYaw =
     (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) -
     (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0);
 
   const yawInput = THREE.MathUtils.clamp(keyYaw + touchInput.yaw, -1, 1);
-
   plane.rotation.y += yawInput * YAW_RATE * dt;
 
-  // nice banking (roll), purely visual
   const targetBank = THREE.MathUtils.clamp(-yawInput * 0.45, -BANK_MAX, BANK_MAX);
   plane.rotation.z = THREE.MathUtils.lerp(
     plane.rotation.z,
@@ -508,10 +537,7 @@ function updateFlight(dt) {
     1 - Math.pow(0.001, dt * BANK_SMOOTH)
   );
 
-  // --- altitude behavior ---
   let targetV = 0;
-
-  // UP
   if (climb) targetV += 9.0;
 
   if (speed < TAKEOFF_SPEED) {
@@ -557,22 +583,9 @@ function updateCamera(dt) {
 }
 
 // ---------------- GAME START (после полной загрузки) ----------------
-let timerInterval = null;
-function startTimer() {
-  const timerEl = document.getElementById("timer");
-  const start = performance.now();
-  timerInterval = setInterval(() => {
-    if (!timerEl) return;
-    const sec = Math.floor((performance.now() - start) / 1000);
-    const mm = String(Math.floor(sec / 60)).padStart(2, "0");
-    const ss = String(sec % 60).padStart(2, "0");
-    timerEl.textContent = `${mm}:${ss}`;
-  }, 250);
-}
-
 let last = performance.now();
 function startGame() {
-  startTimer();
+  gameStartTime = performance.now();
   last = performance.now();
   requestAnimationFrame(animate);
 }
@@ -582,6 +595,14 @@ function animate() {
   const now = performance.now();
   const dt = Math.min((now - last) / 1000, 0.033);
   last = now;
+
+  // таймер без рывков
+  if (timerEl && gameStartTime) {
+    const sec = Math.floor((now - gameStartTime) / 1000);
+    const mm = String(Math.floor(sec / 60)).padStart(2, "0");
+    const ss = String(sec % 60).padStart(2, "0");
+    timerEl.textContent = `${mm}:${ss}`;
+  }
 
   updateFlight(dt);
   updateCamera(dt);
@@ -593,6 +614,13 @@ function animate() {
 // ---------------- RESIZE ----------------
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
+  camera.far = qualitySettings.cameraFar; // ✅ сохраняем выбранную дальность
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight, false);
+
+  // ⚠️ pixelRatio можно не трогать при resize, но на всякий оставим:
+  renderer.setPixelRatio(qualitySettings.pixelRatio);
 });
+
+// (необязательно) просто для себя: увидеть что выбрало авто-качество
+console.log("[Quality]", QUALITY, qualitySettings);

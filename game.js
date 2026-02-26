@@ -474,6 +474,8 @@ function handleWorldBounds(dt) {
   bounceCooldown = 0.25;
 }
 
+const tmpV = new THREE.Vector3();
+
 function updateFlight(dt) {
   // PC + Mobile input
   const w = keys.has("KeyW") || touchInput.w;

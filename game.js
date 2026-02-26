@@ -74,14 +74,25 @@ const loadingPct = document.getElementById("loadingPct");
 const canvas = document.getElementById("game");
 if (!canvas) throw new Error("No canvas#game");
 
+// чтобы на мобилках не скроллило/не зумило при управлении
+canvas.style.touchAction = "none";
+document.body.style.touchAction = "none";
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
 scene.fog = new THREE.Fog(0x87ceeb, 80, 700);
 
 const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 2500);
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+const isTouchDevice =
+  ("ontouchstart" in window) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: !isTouchDevice, // на мобилках часто тяжелее
+  powerPreference: "high-performance",
+});
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isTouchDevice ? 1.25 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -137,7 +148,6 @@ manager.onProgress = (_url, loaded, total) => {
 };
 
 manager.onLoad = () => {
-  // Скрываем экран загрузки и стартуем игру
   loadingUI.style.display = "none";
   startGame();
 };
@@ -218,12 +228,10 @@ loadModel(PLANE_URL)
     fitModelToSize(model, 7);
     model.position.set(0, 0, 0);
     placeOnGround(model, 0);
-
     model.rotation.y = 0;
 
     plane.clear();
     plane.add(model);
-
     plane.position.set(0, GROUND_Y, 0);
   })
   .catch(() => {
@@ -244,11 +252,190 @@ const MAX_Z = WORLD_HALF - BOUNDS_MARGIN;
 
 let bounceCooldown = 0;
 
-// ---------------- ARCADE FLIGHT ----------------
+// ---------------- INPUT (PC) ----------------
 const keys = new Set();
 window.addEventListener("keydown", (e) => keys.add(e.code));
 window.addEventListener("keyup", (e) => keys.delete(e.code));
 
+// ---------------- INPUT (MOBILE) ----------------
+const touchInput = {
+  yaw: 0,       // -1..1 (лево..право для поворота)
+  w: false,     // газ
+  s: false,     // тормоз
+  climb: false, // подъём
+  boost: false, // ускорение
+};
+
+function clamp(v, a, b) {
+  return Math.max(a, Math.min(b, v));
+}
+
+function createMobileControls() {
+  if (!isTouchDevice) return;
+
+  const ui = document.createElement("div");
+  ui.id = "mobileUI";
+  ui.style.position = "fixed";
+  ui.style.left = "0";
+  ui.style.top = "0";
+  ui.style.right = "0";
+  ui.style.bottom = "0";
+  ui.style.pointerEvents = "none";
+  ui.style.zIndex = "9998";
+  ui.style.fontFamily = "system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  document.body.appendChild(ui);
+
+  // ---- Joystick (левый низ) ----
+  const joyWrap = document.createElement("div");
+  joyWrap.style.position = "absolute";
+  joyWrap.style.left = "16px";
+  joyWrap.style.bottom = "16px";
+  joyWrap.style.width = "140px";
+  joyWrap.style.height = "140px";
+  joyWrap.style.pointerEvents = "auto";
+  joyWrap.style.touchAction = "none";
+  ui.appendChild(joyWrap);
+
+  const joyBase = document.createElement("div");
+  joyBase.style.position = "absolute";
+  joyBase.style.left = "0";
+  joyBase.style.top = "0";
+  joyBase.style.width = "140px";
+  joyBase.style.height = "140px";
+  joyBase.style.borderRadius = "999px";
+  joyBase.style.background = "rgba(0,0,0,0.25)";
+  joyBase.style.border = "1px solid rgba(255,255,255,0.25)";
+  joyWrap.appendChild(joyBase);
+
+  const joyKnob = document.createElement("div");
+  joyKnob.style.position = "absolute";
+  joyKnob.style.left = "50%";
+  joyKnob.style.top = "50%";
+  joyKnob.style.width = "58px";
+  joyKnob.style.height = "58px";
+  joyKnob.style.marginLeft = "-29px";
+  joyKnob.style.marginTop = "-29px";
+  joyKnob.style.borderRadius = "999px";
+  joyKnob.style.background = "rgba(255,255,255,0.7)";
+  joyKnob.style.boxShadow = "0 8px 20px rgba(0,0,0,0.25)";
+  joyWrap.appendChild(joyKnob);
+
+  const joyRadius = 45; // фактический радиус движения ручки
+  let joyActive = false;
+  let joyPointerId = null;
+  let centerX = 0;
+  let centerY = 0;
+
+  function resetJoy() {
+    joyKnob.style.transform = `translate(0px, 0px)`;
+    touchInput.yaw = 0;
+    joyActive = false;
+    joyPointerId = null;
+  }
+
+  joyWrap.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    joyActive = true;
+    joyPointerId = e.pointerId;
+    joyWrap.setPointerCapture(joyPointerId);
+
+    const rect = joyWrap.getBoundingClientRect();
+    centerX = rect.left + rect.width / 2;
+    centerY = rect.top + rect.height / 2;
+  });
+
+  joyWrap.addEventListener("pointermove", (e) => {
+    if (!joyActive || e.pointerId !== joyPointerId) return;
+    e.preventDefault();
+
+    const dx = e.clientX - centerX;
+    const dy = e.clientY - centerY;
+
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = dx / len;
+    const ny = dy / len;
+    const mag = Math.min(len, joyRadius);
+
+    const mx = nx * mag;
+    const my = ny * mag;
+
+    joyKnob.style.transform = `translate(${mx}px, ${my}px)`;
+
+    // для поворота нам нужна горизонталь:
+    // dx < 0 => поворот влево => yawInput должен быть +1
+    touchInput.yaw = clamp(-dx / joyRadius, -1, 1);
+  });
+
+  const joyEnd = (e) => {
+    if (e.pointerId !== joyPointerId) return;
+    e.preventDefault();
+    resetJoy();
+  };
+
+  joyWrap.addEventListener("pointerup", joyEnd);
+  joyWrap.addEventListener("pointercancel", joyEnd);
+  joyWrap.addEventListener("lostpointercapture", resetJoy);
+
+  // ---- Buttons (правый низ) ----
+  const btnWrap = document.createElement("div");
+  btnWrap.style.position = "absolute";
+  btnWrap.style.right = "16px";
+  btnWrap.style.bottom = "16px";
+  btnWrap.style.display = "grid";
+  btnWrap.style.gridTemplateColumns = "repeat(2, 88px)";
+  btnWrap.style.gridTemplateRows = "repeat(2, 64px)";
+  btnWrap.style.gap = "10px";
+  btnWrap.style.pointerEvents = "auto";
+  btnWrap.style.touchAction = "none";
+  ui.appendChild(btnWrap);
+
+  function mkBtn(label) {
+    const b = document.createElement("div");
+    b.textContent = label;
+    b.style.display = "flex";
+    b.style.alignItems = "center";
+    b.style.justifyContent = "center";
+    b.style.borderRadius = "14px";
+    b.style.background = "rgba(0,0,0,0.25)";
+    b.style.border = "1px solid rgba(255,255,255,0.25)";
+    b.style.color = "white";
+    b.style.fontWeight = "700";
+    b.style.letterSpacing = "0.5px";
+    b.style.userSelect = "none";
+    b.style.webkitUserSelect = "none";
+    b.style.cursor = "pointer";
+    return b;
+  }
+
+  function bindHold(btn, onDown, onUp) {
+    const down = (e) => { e.preventDefault(); onDown(); };
+    const up = (e) => { e.preventDefault(); onUp(); };
+
+    btn.addEventListener("pointerdown", down);
+    btn.addEventListener("pointerup", up);
+    btn.addEventListener("pointercancel", up);
+    btn.addEventListener("pointerleave", up);
+  }
+
+  const btnGas = mkBtn("GAS");
+  const btnBrake = mkBtn("BRAKE");
+  const btnUp = mkBtn("UP");
+  const btnBoost = mkBtn("BOOST");
+
+  bindHold(btnGas, () => (touchInput.w = true), () => (touchInput.w = false));
+  bindHold(btnBrake, () => (touchInput.s = true), () => (touchInput.s = false));
+  bindHold(btnUp, () => (touchInput.climb = true), () => (touchInput.climb = false));
+  bindHold(btnBoost, () => (touchInput.boost = true), () => (touchInput.boost = false));
+
+  btnWrap.appendChild(btnGas);
+  btnWrap.appendChild(btnBrake);
+  btnWrap.appendChild(btnUp);
+  btnWrap.appendChild(btnBoost);
+}
+
+createMobileControls();
+
+// ---------------- ARCADE FLIGHT ----------------
 let speed = 0;
 let altitude = 0;
 let vAlt = 0;
@@ -267,8 +454,6 @@ const V_DAMP = 3.5;
 const YAW_RATE = 1.6;
 const BANK_MAX = 0.55;
 const BANK_SMOOTH = 5.0;
-
-const tmpV = new THREE.Vector3();
 
 function handleWorldBounds(dt) {
   bounceCooldown = Math.max(0, bounceCooldown - dt);
@@ -290,11 +475,13 @@ function handleWorldBounds(dt) {
 }
 
 function updateFlight(dt) {
-  const w = keys.has("KeyW");
-  const s = keys.has("KeyS");
-  const boost = keys.has("ShiftLeft") || keys.has("ShiftRight");
-  const climb = keys.has("Space");
+  // PC + Mobile input
+  const w = keys.has("KeyW") || touchInput.w;
+  const s = keys.has("KeyS") || touchInput.s;
+  const boost = keys.has("ShiftLeft") || keys.has("ShiftRight") || touchInput.boost;
+  const climb = keys.has("Space") || touchInput.climb;
 
+  // --- speed control ---
   if (w) speed += ACCEL * (boost ? 1.2 : 1.0) * dt;
   else speed -= DRAG * dt;
 
@@ -302,12 +489,16 @@ function updateFlight(dt) {
 
   speed = THREE.MathUtils.clamp(speed, 0, MAX_SPEED);
 
-  const yawInput =
+  // --- steering (PC keys + mobile joystick) ---
+  const keyYaw =
     (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) -
     (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0);
 
+  const yawInput = THREE.MathUtils.clamp(keyYaw + touchInput.yaw, -1, 1);
+
   plane.rotation.y += yawInput * YAW_RATE * dt;
 
+  // nice banking (roll), purely visual
   const targetBank = THREE.MathUtils.clamp(-yawInput * 0.45, -BANK_MAX, BANK_MAX);
   plane.rotation.z = THREE.MathUtils.lerp(
     plane.rotation.z,
@@ -315,8 +506,10 @@ function updateFlight(dt) {
     1 - Math.pow(0.001, dt * BANK_SMOOTH)
   );
 
+  // --- altitude behavior ---
   let targetV = 0;
 
+  // UP
   if (climb) targetV += 9.0;
 
   if (speed < TAKEOFF_SPEED) {

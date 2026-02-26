@@ -1,7 +1,5 @@
 import * as THREE from "./vendor/three/build/three.module.js";
 import { GLTFLoader } from "./vendor/three/examples/jsm/loaders/GLTFLoader.js";
-import { OrbitControls } from "./vendor/three/examples/jsm/controls/OrbitControls.js";
-import { TransformControls } from "./vendor/three/examples/jsm/controls/TransformControls.js";
 
 import { buildWorldObjects } from "./worldObjects.js";
 
@@ -264,9 +262,6 @@ const lookAt = new THREE.Vector3();
 const tmp = new THREE.Vector3();
 
 function updateCamera(dt) {
-  // ✅ ИЗМЕНЕНИЕ #1: в режиме редактора камера не привязана к самолёту
-  if (editorEnabled) return;
-
   const k = speed / MAX_SPEED;
   const dist = THREE.MathUtils.lerp(22, 30, k);
   const height = THREE.MathUtils.lerp(6.5, 9.0, k);
@@ -279,141 +274,6 @@ function updateCamera(dt) {
   camera.lookAt(lookAt);
 }
 
-// =========================================================
-// =================== MAP EDITOR ===========================
-// =========================================================
-
-let editorEnabled = false;
-
-const orbit = new OrbitControls(camera, renderer.domElement);
-orbit.enabled = false;
-orbit.enableDamping = true;
-
-const transform = new TransformControls(camera, renderer.domElement);
-transform.enabled = false;
-transform.visible = false;
-scene.add(transform);
-
-transform.addEventListener("dragging-changed", (e) => {
-  orbit.enabled = editorEnabled && !e.value;
-});
-
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
-
-function isNonSelectableRoot(obj) {
-  return obj === ground || obj === plane;
-}
-
-function pickRootToMove(obj) {
-  let cur = obj;
-  while (cur && cur.parent && cur.parent !== scene) cur = cur.parent;
-  if (!cur || isNonSelectableRoot(cur)) return null;
-  return cur;
-}
-
-function onEditorPointerDown(e) {
-  if (!editorEnabled) return;
-
-  const rect = renderer.domElement.getBoundingClientRect();
-  mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-  mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
-
-  raycaster.setFromCamera(mouse, camera);
-
-  const meshes = [];
-  scene.traverse((n) => {
-    if (n.isMesh) meshes.push(n);
-  });
-
-  const hits = raycaster.intersectObjects(meshes, true);
-  if (!hits.length) return;
-
-  const root = pickRootToMove(hits[0].object);
-  if (!root) return;
-
-  transform.attach(root);
-}
-
-window.addEventListener("pointerdown", onEditorPointerDown);
-
-function saveMap(key = "heli_map_v1") {
-  const items = [];
-  scene.children.forEach((c) => {
-    if (isNonSelectableRoot(c)) return;
-    if (c.isLight) return;
-
-    items.push({
-      name: c.name ?? "",
-      type: c.userData?.type ?? "",
-      position: { x: c.position.x, y: c.position.y, z: c.position.z },
-      rotation: { x: c.rotation.x, y: c.rotation.y, z: c.rotation.z },
-      scale: { x: c.scale.x, y: c.scale.y, z: c.scale.z },
-    });
-  });
-
-  localStorage.setItem(key, JSON.stringify({ version: 1, items }));
-  console.log("[Editor] saved:", key);
-}
-
-function loadMap(key = "heli_map_v1") {
-  const raw = localStorage.getItem(key);
-  if (!raw) return console.warn("[Editor] no saved map:", key);
-
-  const data = JSON.parse(raw);
-  const items = data.items ?? [];
-
-  const targets = scene.children.filter((c) => !isNonSelectableRoot(c) && !c.isLight);
-
-  for (let i = 0; i < Math.min(items.length, targets.length); i++) {
-    const t = targets[i];
-    const it = items[i];
-    t.position.set(it.position.x, it.position.y, it.position.z);
-    t.rotation.set(it.rotation.x, it.rotation.y, it.rotation.z);
-    t.scale.set(it.scale.x, it.scale.y, it.scale.z);
-  }
-
-  console.log("[Editor] loaded:", key);
-}
-
-window.addEventListener("keydown", (e) => {
-  // ✅ ИЗМЕНЕНИЕ #2: при включении редактора уводим камеру от самолёта
-  if (e.code === "F1") {
-    editorEnabled = !editorEnabled;
-
-    orbit.enabled = editorEnabled;
-    transform.enabled = editorEnabled;
-    transform.visible = editorEnabled;
-
-    if (editorEnabled) {
-      orbit.target.set(0, 0, 0);
-      camera.position.set(0, 220, 320);
-      orbit.update();
-    } else {
-      transform.detach();
-    }
-
-    return;
-  }
-
-  if (!editorEnabled) return;
-
-  if (e.code === "KeyG") transform.setMode("translate");
-  if (e.code === "KeyR") transform.setMode("rotate");
-  if (e.code === "KeyS") transform.setMode("scale");
-
-  if (e.code === "Delete") {
-    const obj = transform.object;
-    if (obj && !isNonSelectableRoot(obj)) {
-      transform.detach();
-      obj.removeFromParent();
-    }
-  }
-
-  if (e.code === "F5") saveMap();
-  if (e.code === "F9") loadMap();
-});
-
 // ---------------- LOOP ----------------
 let last = performance.now();
 function animate() {
@@ -423,8 +283,6 @@ function animate() {
 
   updateFlight(dt);
   updateCamera(dt);
-
-  if (editorEnabled) orbit.update();
 
   renderer.render(scene, camera);
   requestAnimationFrame(animate);

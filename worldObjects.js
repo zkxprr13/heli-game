@@ -1,13 +1,5 @@
-import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-
-const loader = new GLTFLoader();
-
-function loadModel(url) {
-  return new Promise((resolve, reject) =>
-    loader.load(url, (g) => resolve(g.scene), undefined, reject)
-  );
-}
+import * as THREE from "./vendor/three/build/three.module.js";
+import { GLTFLoader } from "./vendor/three/examples/jsm/loaders/GLTFLoader.js";
 
 function setupShadows(root) {
   root.traverse((n) => {
@@ -35,38 +27,41 @@ function randBetween(a, b) {
   return a + Math.random() * (b - a);
 }
 
-// Фиксированные билборды "по твоей карте" — можешь править тут
+// Твои фиксированные билборды (оставил как было)
 const FIXED_BILLBOARDS = [
-  { x: -320, z:  320, rotY:  0.3, scale: 1.00 },
-  { x: -210, z:  290, rotY: -0.2, scale: 1.00 },
-  { x:  -90, z:  250, rotY:  0.7, scale: 1.00 },
-  { x:   60, z:  320, rotY: -0.2, scale: 1.00 },
-  { x:  250, z:  290, rotY:  0.4, scale: 1.00 },
+  { x: -320, z: 320, rotY: 0.3, scale: 1 },
+  { x: -210, z: 290, rotY: -0.2, scale: 1 },
+  { x: -90, z: 250, rotY: 0.7, scale: 1 },
+  { x: 60, z: 320, rotY: -0.2, scale: 1 },
+  { x: 250, z: 290, rotY: 0.4, scale: 1 },
 
-  { x:  -60, z:  170, rotY:  0.2, scale: 1.00 },
-  { x:   50, z:  140, rotY: -0.6, scale: 1.00 },
-  { x:  150, z:  210, rotY:  0.9, scale: 1.00 },
+  { x: -60, z: 170, rotY: 0.2, scale: 1 },
+  { x: 50, z: 140, rotY: -0.6, scale: 1 },
+  { x: 150, z: 210, rotY: 0.9, scale: 1 },
 
-  { x:  120, z:   30, rotY:  0.4, scale: 1.30 },
-  { x:  -20, z:   20, rotY: -0.2, scale: 1.00 },
-  { x: -140, z:   70, rotY:  0.7, scale: 1.00 },
-  { x: -220, z:  120, rotY: -0.5, scale: 1.00 },
+  { x: 120, z: 30, rotY: 0.4, scale: 1.3 },
+  { x: -20, z: 20, rotY: -0.2, scale: 1 },
+  { x: -140, z: 70, rotY: 0.7, scale: 1 },
+  { x: -220, z: 120, rotY: -0.5, scale: 1 },
 
-  { x:  -70, z:  -40, rotY:  0.1, scale: 1.00 },
-  { x:   40, z:  -90, rotY: -0.4, scale: 1.00 },
-  { x:  150, z:  -40, rotY:  0.5, scale: 1.00 },
-  { x: -180, z: -120, rotY:  0.9, scale: 1.00 },
+  { x: -70, z: -40, rotY: 0.1, scale: 1 },
+  { x: 40, z: -90, rotY: -0.4, scale: 1 },
+  { x: 150, z: -40, rotY: 0.5, scale: 1 },
+  { x: -180, z: -120, rotY: 0.9, scale: 1 },
 
-  { x: -320, z: -220, rotY:  0.2, scale: 1.00 },
-  { x: -240, z: -280, rotY: -0.1, scale: 1.00 },
-  { x: -120, z: -300, rotY:  0.6, scale: 1.00 },
-  { x:   10, z: -320, rotY: -0.3, scale: 1.00 },
-  { x:  140, z: -290, rotY:  0.2, scale: 1.00 },
-  { x:  260, z: -260, rotY: -0.4, scale: 1.00 },
+  { x: -320, z: -220, rotY: 0.2, scale: 1 },
+  { x: -240, z: -280, rotY: -0.1, scale: 1 },
+  { x: -120, z: -300, rotY: 0.6, scale: 1 },
+  { x: 10, z: -320, rotY: -0.3, scale: 1 },
+  { x: 140, z: -290, rotY: 0.2, scale: 1 },
+  { x: 260, z: -260, rotY: -0.4, scale: 1 },
 ];
 
-// baseUrl передаём из game.js ("/heli-game"), чтобы на GitHub Pages не было сюрпризов
-export async function buildWorldObjects(scene, groundY, baseUrl) {
+export async function buildWorldObjects(scene, groundY, baseUrl, manager) {
+  const gltfLoader = new GLTFLoader(manager);
+  const loadModel = (url) =>
+    new Promise((resolve, reject) => gltfLoader.load(url, (g) => resolve(g.scene), undefined, reject));
+
   // --- houses ---
   try {
     const houseBase = await loadModel(`${baseUrl}/assets/models/house.glb`);
@@ -85,7 +80,7 @@ export async function buildWorldObjects(scene, groundY, baseUrl) {
     scene.add(h2);
   } catch {}
 
-  // --- trees (как в твоём исходнике: 18 рандомных) ---
+  // --- trees (как было: 18 рандомных) ---
   try {
     const treeBase = await loadModel(`${baseUrl}/assets/models/tree.glb`);
     setupShadows(treeBase);

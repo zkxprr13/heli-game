@@ -5,16 +5,70 @@ import { buildWorldObjects } from "./worldObjects.js";
 
 const BASE = "/heli-game";
 
-// ---------------- TIMER ----------------
-const timerEl = document.getElementById("timer");
-const start = performance.now();
-setInterval(() => {
-  if (!timerEl) return;
-  const sec = Math.floor((performance.now() - start) / 1000);
-  const mm = String(Math.floor(sec / 60)).padStart(2, "0");
-  const ss = String(sec % 60).padStart(2, "0");
-  timerEl.textContent = `${mm}:${ss}`;
-}, 250);
+// ----------------------------------------------------
+// LOADING OVERLAY (создаём прямо из JS, без правки HTML)
+// ----------------------------------------------------
+function ensureLoadingUI() {
+  let wrap = document.getElementById("loading");
+  if (!wrap) {
+    wrap = document.createElement("div");
+    wrap.id = "loading";
+    wrap.style.position = "fixed";
+    wrap.style.left = "0";
+    wrap.style.top = "0";
+    wrap.style.right = "0";
+    wrap.style.bottom = "0";
+    wrap.style.display = "flex";
+    wrap.style.alignItems = "center";
+    wrap.style.justifyContent = "center";
+    wrap.style.flexDirection = "column";
+    wrap.style.background = "#0b1220";
+    wrap.style.color = "white";
+    wrap.style.zIndex = "9999";
+    wrap.style.fontFamily = "system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    wrap.style.userSelect = "none";
+
+    const title = document.createElement("div");
+    title.textContent = "Загрузка…";
+    title.style.fontSize = "22px";
+    title.style.marginBottom = "10px";
+    title.style.opacity = "0.9";
+
+    const barWrap = document.createElement("div");
+    barWrap.style.width = "min(420px, 80vw)";
+    barWrap.style.height = "10px";
+    barWrap.style.borderRadius = "999px";
+    barWrap.style.background = "rgba(255,255,255,0.15)";
+    barWrap.style.overflow = "hidden";
+
+    const bar = document.createElement("div");
+    bar.id = "loadingBar";
+    bar.style.height = "100%";
+    bar.style.width = "0%";
+    bar.style.background = "rgba(255,255,255,0.9)";
+    bar.style.borderRadius = "999px";
+
+    barWrap.appendChild(bar);
+
+    const pct = document.createElement("div");
+    pct.id = "loadingPct";
+    pct.textContent = "0%";
+    pct.style.marginTop = "10px";
+    pct.style.opacity = "0.85";
+
+    wrap.appendChild(title);
+    wrap.appendChild(barWrap);
+    wrap.appendChild(pct);
+
+    document.body.appendChild(wrap);
+  }
+
+  return wrap;
+}
+
+const loadingUI = ensureLoadingUI();
+const loadingBar = document.getElementById("loadingBar");
+const loadingPct = document.getElementById("loadingPct");
 
 // ---------------- SCENE ----------------
 const canvas = document.getElementById("game");
@@ -57,8 +111,39 @@ ground.position.y = GROUND_Y;
 ground.receiveShadow = true;
 scene.add(ground);
 
-// grass (optional)
-new THREE.TextureLoader().load(
+// ---------------- LOADING MANAGER ----------------
+const manager = new THREE.LoadingManager();
+
+let itemsLoaded = 0;
+let itemsTotal = 0;
+
+function updateLoadingUI() {
+  if (itemsTotal <= 0) return;
+  const p = Math.floor((itemsLoaded / itemsTotal) * 100);
+  if (loadingBar) loadingBar.style.width = `${p}%`;
+  if (loadingPct) loadingPct.textContent = `${p}%`;
+}
+
+manager.onStart = (_url, loaded, total) => {
+  itemsLoaded = loaded;
+  itemsTotal = total;
+  updateLoadingUI();
+};
+
+manager.onProgress = (_url, loaded, total) => {
+  itemsLoaded = loaded;
+  itemsTotal = total;
+  updateLoadingUI();
+};
+
+manager.onLoad = () => {
+  // Скрываем экран загрузки и стартуем игру
+  loadingUI.style.display = "none";
+  startGame();
+};
+
+// ---------------- grass texture (через manager) ----------------
+new THREE.TextureLoader(manager).load(
   `${BASE}/assets/textures/grass.jpg`,
   (tex) => {
     tex.wrapS = THREE.RepeatWrapping;
@@ -72,11 +157,13 @@ new THREE.TextureLoader().load(
   () => {}
 );
 
-// ---------------- GLTF ----------------
-const loader = new GLTFLoader();
+// ---------------- GLTF (через manager) ----------------
+const loader = new GLTFLoader(manager);
+
 function loadModel(url) {
   return new Promise((resolve, reject) => loader.load(url, (g) => resolve(g.scene), undefined, reject));
 }
+
 function setupShadows(root) {
   root.traverse((n) => {
     if (n.isMesh) {
@@ -85,6 +172,7 @@ function setupShadows(root) {
     }
   });
 }
+
 function fitModelToSize(model, targetSize) {
   const box = new THREE.Box3().setFromObject(model);
   const size = new THREE.Vector3();
@@ -92,6 +180,7 @@ function fitModelToSize(model, targetSize) {
   const maxDim = Math.max(size.x, size.y, size.z) || 1;
   model.scale.multiplyScalar(targetSize / maxDim);
 }
+
 function placeOnGround(model, groundY) {
   const box = new THREE.Box3().setFromObject(model);
   model.position.y += groundY - box.min.y;
@@ -130,7 +219,6 @@ loadModel(PLANE_URL)
     model.position.set(0, 0, 0);
     placeOnGround(model, 0);
 
-    // ✅ РАЗВОРОТ самолёта:
     model.rotation.y = 0;
 
     plane.clear();
@@ -143,8 +231,8 @@ loadModel(PLANE_URL)
     plane.position.set(0, GROUND_Y, 0);
   });
 
-// ---------------- WORLD OBJECTS ----------------
-buildWorldObjects(scene, GROUND_Y, BASE);
+// ---------------- WORLD OBJECTS (через manager) ----------------
+buildWorldObjects(scene, GROUND_Y, BASE, manager);
 
 // ---------------- INVISIBLE BOUNDS ----------------
 const WORLD_HALF = 700 / 2;
@@ -173,7 +261,6 @@ const DRAG = 14;
 const TAKEOFF_SPEED = 28;
 const STALL_SPEED = 18;
 
-const LIFT_POWER = 14;
 const DESCENT_POWER = 10;
 const V_DAMP = 3.5;
 
@@ -274,8 +361,28 @@ function updateCamera(dt) {
   camera.lookAt(lookAt);
 }
 
-// ---------------- LOOP ----------------
+// ---------------- GAME START (после полной загрузки) ----------------
+let timerInterval = null;
+function startTimer() {
+  const timerEl = document.getElementById("timer");
+  const start = performance.now();
+  timerInterval = setInterval(() => {
+    if (!timerEl) return;
+    const sec = Math.floor((performance.now() - start) / 1000);
+    const mm = String(Math.floor(sec / 60)).padStart(2, "0");
+    const ss = String(sec % 60).padStart(2, "0");
+    timerEl.textContent = `${mm}:${ss}`;
+  }, 250);
+}
+
 let last = performance.now();
+function startGame() {
+  startTimer();
+  last = performance.now();
+  requestAnimationFrame(animate);
+}
+
+// ---------------- LOOP ----------------
 function animate() {
   const now = performance.now();
   const dt = Math.min((now - last) / 1000, 0.033);
@@ -287,7 +394,6 @@ function animate() {
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
-animate();
 
 // ---------------- RESIZE ----------------
 window.addEventListener("resize", () => {
